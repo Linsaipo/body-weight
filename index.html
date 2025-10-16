@@ -3,35 +3,35 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>體重會員站（手機驗證版）</title>
+  <title>體重會員站（Google / Apple 登入版）</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-    import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
-    import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, OAuthProvider } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+    import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
 
+    // ⚠️ 換成你的 Firebase 設定
     const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_PROJECT_ID.appspot.com",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
+      apiKey: "AIzaSyD81Aw3raqUcG_EUl8_W_WG3bxcunfA9rQ",
+      authDomain: "body-weight-39dfd.firebaseapp.com",
+      projectId: "body-weight-39dfd",
+      storageBucket: "body-weight-39dfd.appspot.com",
+      messagingSenderId: "745642339903",
+      appId: "1:745642339903:web:d570fce93146c8861c528a"
     };
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
 
+    // === UI refs ===
     const el = {
       authSection: document.getElementById('auth-section'),
       appSection: document.getElementById('app-section'),
-      phone: document.getElementById('phone'),
-      code: document.getElementById('code'),
-      sendCodeBtn: document.getElementById('sendCodeBtn'),
-      verifyBtn: document.getElementById('verifyBtn'),
+      btnGoogle: document.getElementById('btnGoogle'),
+      btnApple: document.getElementById('btnApple'),
       logoutBtn: document.getElementById('logoutBtn'),
       meName: document.getElementById('meName'),
       date: document.getElementById('date'),
@@ -48,42 +48,41 @@
       trend30: document.getElementById('trend30')
     };
 
-    let confirmationResult = null;
-    let unsubscribe = null;
-    let weightChart = null;
+    // === Sign-in Providers ===
+    const googleProvider = new GoogleAuthProvider();
+    const appleProvider = new OAuthProvider('apple.com');
 
-    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-      'size': 'invisible'
-    });
-
-    el.sendCodeBtn.addEventListener('click', async () => {
-      const phone = el.phone.value.trim();
-      if (!phone) return alert('請輸入手機號碼');
+    // iOS / Safari 對第三方彈窗較嚴，Apple 建議用 Redirect；Google 多數情況可用 Popup。
+    el.btnGoogle.addEventListener('click', async () => {
       try {
-        confirmationResult = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
-        alert('驗證碼已發送，請查收 SMS');
+        await signInWithPopup(auth, googleProvider);
       } catch (err) {
-        alert('發送驗證碼失敗：' + err.message);
+        // 退而求其次改 redirect
+        await signInWithRedirect(auth, googleProvider);
       }
     });
 
-    el.verifyBtn.addEventListener('click', async () => {
-      const code = el.code.value.trim();
-      if (!code) return alert('請輸入驗證碼');
+    el.btnApple.addEventListener('click', async () => {
       try {
-        await confirmationResult.confirm(code);
+        // 要求基本檔案（email/name），首次登入才可能回傳
+        appleProvider.addScope('email');
+        appleProvider.addScope('name');
+        await signInWithPopup(auth, appleProvider);
       } catch (err) {
-        alert('驗證失敗：' + err.message);
+        await signInWithRedirect(auth, appleProvider);
       }
     });
 
-    el.logoutBtn.addEventListener('click', async () => {
-      await signOut(auth);
-    });
+    // 處理 redirect 回來
+    getRedirectResult(auth).catch(() => {/* 忽略，失敗時使用者會停留在登入畫面 */});
 
+    el.logoutBtn.addEventListener('click', async () => { await signOut(auth); });
+
+    // === Auth state ===
     onAuthStateChanged(auth, (user) => {
       if (user) {
-        el.meName.textContent = user.phoneNumber;
+        const name = user.displayName || user.email || user.uid;
+        el.meName.textContent = name;
         el.authSection.classList.add('hidden');
         el.appSection.classList.remove('hidden');
         startUserDataFeed(user.uid);
@@ -95,11 +94,8 @@
       }
     });
 
-    function cleanupUserDataFeed() {
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
+    function cleanupUserDataFeed(){
+      if (unsubscribe) { unsubscribe(); unsubscribe = null; }
       el.tbody.innerHTML = '';
       el.emptyHint.classList.remove('hidden');
       renderChart([]);
@@ -107,15 +103,15 @@
       el.trend30.textContent = '—';
     }
 
-    el.saveBtn.addEventListener('click', async () => {
-      const user = auth.currentUser;
-      if (!user) return alert('請先登入');
+    // === Firestore ===
+    let unsubscribe = null;
+    let weightChart = null;
 
-      const dateStr = el.date.value;
-      const weightVal = parseFloat(el.weight.value);
+    el.saveBtn.addEventListener('click', async () => {
+      const user = auth.currentUser; if (!user) return alert('請先登入');
+      const dateStr = el.date.value; const weightVal = parseFloat(el.weight.value);
       if (!dateStr) return alert('請選擇日期');
       if (Number.isNaN(weightVal)) return alert('請輸入體重');
-
       const entry = {
         date: new Date(dateStr + 'T00:00:00'),
         weight: weightVal,
@@ -129,70 +125,62 @@
       el.weight.value = el.bodyFat.value = el.muscle.value = el.waist.value = el.note.value = '';
     });
 
-    function startUserDataFeed(uid) {
-      const q = query(collection(db, 'users', uid, 'entries'), orderBy('date', 'asc'));
-      unsubscribe = onSnapshot(q, (snap) => {
-        const rows = [];
-        snap.forEach(docSnap => rows.push({ id: docSnap.id, ...docSnap.data() }));
-        renderTable(rows);
-        renderChart(rows);
-        renderTrends(rows);
+    function startUserDataFeed(uid){
+      const q = query(collection(db, 'users', uid, 'entries'), orderBy('date','asc'));
+      unsubscribe = onSnapshot(q, snap => {
+        const rows = []; snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
+        renderTable(rows); renderChart(rows); renderTrends(rows);
       });
     }
 
-    function renderTable(rows) {
+    function renderTable(rows){
       el.tbody.innerHTML = '';
-      if (!rows.length) {
-        el.emptyHint.classList.remove('hidden');
-        return;
-      }
+      if (!rows.length){ el.emptyHint.classList.remove('hidden'); return; }
       el.emptyHint.classList.add('hidden');
-      for (const r of rows) {
-        const tr = document.createElement('tr');
-        tr.className = 'border-b';
-        tr.innerHTML = `<td class='px-3 py-2 text-sm'>${fmtDate(r.date)}</td><td class='px-3 py-2 text-sm font-semibold'>${safeNum(r.weight)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.muscle)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.waist)}</td><td class='px-3 py-2 text-sm'>${escapeHtml(r.note || '')}</td><td class='px-3 py-2 text-sm text-right'><button class='text-red-600 hover:underline' data-id='${r.id}'>刪除</button></td>`;
-        tr.querySelector('button')?.addEventListener('click', async (e) => {
-          const id = e.currentTarget.getAttribute('data-id');
-          const user = auth.currentUser;
-          await deleteDoc(doc(db, 'users', user.uid, 'entries', id));
+      for (const r of rows){
+        const tr = document.createElement('tr'); tr.className='border-b';
+        tr.innerHTML = `<td class='px-3 py-2 text-sm'>${fmtDate(r.date)}</td><td class='px-3 py-2 text-sm font-semibold'>${safeNum(r.weight)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.muscle)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.waist)}</td><td class='px-3 py-2 text-sm'>${escapeHtml(r.note||'')}</td><td class='px-3 py-2 text-sm text-right'><button class='text-red-600 hover:underline' data-id='${r.id}'>刪除</button></td>`;
+        tr.querySelector('button')?.addEventListener('click', async (e)=>{
+          const id=e.currentTarget.getAttribute('data-id');
+          const user = auth.currentUser; await deleteDoc(doc(db,'users',user.uid,'entries',id));
         });
         el.tbody.appendChild(tr);
       }
     }
 
-    function renderChart(rows) {
-      const points = rows.map(r => ({ x: new Date(r.date?.toDate?.() ? r.date.toDate() : r.date), y: Number(r.weight) }));
-      const data = { datasets: [{ label: '體重 (kg)', data: points, tension: 0.3, pointRadius: 3, borderWidth: 2, fill: false }] };
-      const options = { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'day' } }, y: { title: { display: true, text: 'kg' } } } };
-      if (weightChart) { weightChart.data = data; weightChart.update(); } else { weightChart = new Chart(el.chartCanvas.getContext('2d'), { type: 'line', data, options }); }
+    function renderChart(rows){
+      const points = rows.map(r=>({x:new Date(r.date?.toDate?.()?r.date.toDate():r.date), y:Number(r.weight)}));
+      const data = { datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
+      const options = { responsive:true, maintainAspectRatio:false, scales:{ x:{ type:'time', time:{ unit:'day' } }, y:{ title:{ display:true, text:'kg' } } } };
+      if (weightChart){ weightChart.data=data; weightChart.update(); }
+      else { weightChart = new Chart(el.chartCanvas.getContext('2d'), { type:'line', data, options }); }
     }
 
-    function renderTrends(rows) {
-      if (!rows.length) { el.trend7.textContent = '—'; el.trend30.textContent = '—'; return; }
-      const now = new Date();
-      const daysAgo = (n) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - n);
-      const delta = (r) => { if (!r.length) return null; return +(Number(r[r.length-1].weight) - Number(r[0].weight)).toFixed(1); };
-      const r7 = rows.filter(r => new Date(r.date?.toDate?.() ? r.date.toDate() : r.date) >= daysAgo(7));
-      const r30 = rows.filter(r => new Date(r.date?.toDate?.() ? r.date.toDate() : r.date) >= daysAgo(30));
-      const d7 = delta(r7), d30 = delta(r30);
-      el.trend7.textContent = d7 === null ? '—' : (d7 > 0 ? `+${d7} kg` : `${d7} kg`);
-      el.trend30.textContent = d30 === null ? '—' : (d30 > 0 ? `+${d30} kg` : `${d30} kg`);
+    function renderTrends(rows){
+      if (!rows.length){ el.trend7.textContent='—'; el.trend30.textContent='—'; return; }
+      const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
+      const delta = r => { if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); };
+      const r7 = rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
+      const r30= rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30));
+      const d7=delta(r7), d30=delta(r30);
+      el.trend7.textContent = d7===null?'—':(d7>0?`+${d7} kg`:`${d7} kg`);
+      el.trend30.textContent = d30===null?'—':(d30>0?`+${d30} kg`:`${d30} kg`);
     }
 
-    function fmtDate(tsOrDate) { const d = tsOrDate?.toDate?.() ? tsOrDate.toDate() : new Date(tsOrDate); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-    function safeNum(v){return (v===null||v===undefined||v==='')?'':Number(v)}
-    function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]))}
+    function fmtDate(t){ const d=t?.toDate?.()?t.toDate():new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+    function safeNum(v){ return (v===null||v===undefined||v==='')?'':Number(v); }
+    function escapeHtml(s){ return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      const today = new Date();
-      el.date.value = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    // Default date = today
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const t=new Date(); el.date.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
     });
   </script>
 </head>
 <body class="bg-slate-50 min-h-dvh">
   <header class="bg-white border-b sticky top-0 z-10">
     <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-lg sm:text-xl font-bold">體重會員站（手機驗證版）</h1>
+      <h1 class="text-lg sm:text-xl font-bold">體重會員站（Google / Apple 登入版）</h1>
       <div id="user-area" class="text-sm">
         <span id="meName" class="mr-3 text-slate-600"></span>
         <button id="logoutBtn" class="hidden sm:inline-block px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:opacity-90">登出</button>
@@ -200,20 +188,25 @@
     </div>
   </header>
 
+  <!-- 未登入區塊 -->
   <section id="auth-section" class="max-w-md mx-auto px-4 py-8">
     <div class="bg-white rounded-2xl shadow p-6">
-      <h2 class="text-xl font-bold mb-4">手機登入 / 註冊</h2>
-      <label class="block text-sm mb-1">手機號碼（含 +886）</label>
-      <input id="phone" type="tel" class="w-full mb-3 px-3 py-2 rounded border" placeholder="例如：+886912345678" />
-      <div id="recaptcha-container"></div>
-      <button id="sendCodeBtn" class="w-full mb-3 px-4 py-2 rounded-lg bg-slate-900 text-white">發送驗證碼</button>
-
-      <label class="block text-sm mb-1">驗證碼</label>
-      <input id="code" type="text" class="w-full mb-4 px-3 py-2 rounded border" placeholder="輸入簡訊中的6位數" />
-      <button id="verifyBtn" class="w-full px-4 py-2 rounded-lg bg-emerald-600 text-white">登入 / 註冊</button>
+      <h2 class="text-xl font-bold mb-4">選擇登入方式</h2>
+      <div class="space-y-3">
+        <button id="btnGoogle" class="w-full px-4 py-2 rounded-lg border bg-white hover:bg-slate-50 flex items-center justify-center gap-2">
+          <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" class="w-5 h-5"/>
+          <span>使用 Google 登入</span>
+        </button>
+        <button id="btnApple" class="w-full px-4 py-2 rounded-lg bg-black text-white hover:opacity-90 flex items-center justify-center gap-2">
+          <svg viewBox="0 0 14 18" class="w-4 h-4 fill-current"><path d="M9.57.16a3.45 3.45 0 0 1-.82 2.56c-.7.83-1.86 1.49-3.01 1.4-.15-1.03.43-2.12 1.07-2.76A3.56 3.56 0 0 1 9.57.16Zm3.69 14.8c-.5 1.15-.74 1.65-1.38 2.66-1.1 1.7-2.65 3.83-4.56 3.86-1.06.02-1.79-.36-2.69-.36-.9 0-1.67.35-2.7.37-1.88.04-3.48-1.84-4.58-3.53C-.2 15.94-.64 13.4.5 11.47c.82-1.35 2.11-2.21 3.57-2.24 1.01-.02 1.95.4 2.66.4.7 0 1.85-.49 3.13-.42 1.26.08 2.41.52 3.18 1.33-2.8 1.6-2.35 5.79 1.22 6.42Z"/></svg>
+          <span>使用 Apple 登入</span>
+        </button>
+        <p class="text-xs text-slate-500">提示：請先在 Firebase Authentication 中啟用對應的提供者，並把 <code>linsaipo.github.io</code> 加到授權網域。</p>
+      </div>
     </div>
   </section>
 
+  <!-- 已登入區塊 -->
   <section id="app-section" class="hidden max-w-5xl mx-auto px-4 py-6">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="lg:col-span-1">
@@ -257,4 +250,7 @@
       </div>
     </div>
   </section>
-  <footer class="max-w-5xl mx-auto px-4 py-10 text-center text-xs text-slate-500">Demo 站，手機登入版。請於 Firebase 啟用 Phone Auth 並設定 ReCAPTCHA。</
+
+  <footer class="max-w-5xl mx-auto px-4 py-10 text-center text-xs text-slate-500">Demo 站，Google / Apple 登入版。請先在 Firebase 啟用對應登入方式並加入授權網域。</footer>
+</body>
+</html>
