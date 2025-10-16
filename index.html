@@ -10,7 +10,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signOut, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, OAuthProvider } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
-    import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, deleteDoc, setDoc, getDoc, getDocs, where, updateDoc, limit } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
 
     // ⚠️ 換成你的 Firebase 設定
     const firebaseConfig = {
@@ -45,7 +45,21 @@
       chartCanvas: document.getElementById('weightChart'),
       emptyHint: document.getElementById('emptyHint'),
       trend7: document.getElementById('trend7'),
-      trend30: document.getElementById('trend30')
+      trend30: document.getElementById('trend30'),
+      // role router
+      roleRouter: document.getElementById('role-router'),
+      myRoleBadge: document.getElementById('myRoleBadge'),
+      memberBind: document.getElementById('member-bind'),
+      coachNameInput: document.getElementById('coachNameInput'),
+      coachEmailInput: document.getElementById('coachEmailInput'),
+      consentChk: document.getElementById('consentChk'),
+      bindCoachBtn: document.getElementById('bindCoachBtn'),
+      skipBindBtn: document.getElementById('skipBindBtn'),
+      coachSection: document.getElementById('coach-section'),
+      coachMembersTbody: document.getElementById('coachMembersTbody'),
+      adminSection: document.getElementById('admin-section'),
+      pendingReqTbody: document.getElementById('pendingReqTbody'),
+      usersAdminTbody: document.getElementById('usersAdminTbody'),
     };
 
     // === Sign-in Providers ===
@@ -252,5 +266,188 @@
   </section>
 
   <footer class="max-w-5xl mx-auto px-4 py-10 text-center text-xs text-slate-500">Demo 站，Google / Apple 登入版。請先在 Firebase 啟用對應登入方式並加入授權網域。</footer>
+  <!-- 角色與綁定/審核邏輯（新增） -->
+  <script type="module">
+    import { getApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, onSnapshot, query, where, orderBy, serverTimestamp, getDocs, limit } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+
+    const app = getApp();
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const ADMIN_EMAIL = 'linsaipo@gmail.com';
+
+    const $ = (id)=>document.getElementById(id);
+    const ui = {
+      roleRouter: $('role-router'), myRoleBadge: $('myRoleBadge'),
+      memberBind: $('member-bind'), coachNameInput: $('coachNameInput'), coachEmailInput: $('coachEmailInput'), consentChk: $('consentChk'), bindCoachBtn: $('bindCoachBtn'), skipBindBtn: $('skipBindBtn'),
+      coachSection: $('coach-section'), coachMembersTbody: $('coachMembersTbody'),
+      adminSection: $('admin-section'), pendingReqTbody: $('pendingReqTbody'), usersAdminTbody: $('usersAdminTbody'),
+    };
+
+    // 取得/建立使用者檔案
+    async function ensureUserProfile(user){
+      const uref = doc(db, 'users', user.uid);
+      const snap = await getDoc(uref);
+      const base = { email: user.email || '', displayName: user.displayName || '', role: 'member', coachName: null, consent: false, createdAt: serverTimestamp(), subscription: false };
+      if (!snap.exists()){
+        // 首次登入
+        if ((user.email || '').toLowerCase() === ADMIN_EMAIL) base.role = 'admin';
+        await setDoc(uref, base, { merge: true });
+        return { ...base };
+      } else {
+        const data = snap.data();
+        // 若是管理者帳號，自動升級角色
+        if ((user.email || '').toLowerCase() === ADMIN_EMAIL && data.role !== 'admin'){
+          await updateDoc(uref, { role: 'admin' });
+          data.role = 'admin';
+        }
+        return data;
+      }
+    }
+
+    function show(el, on){ el.classList[on?'remove':'add']('hidden'); }
+
+    let unsubUsers = null, unsubReqs = null;
+
+    onAuthStateChanged(auth, async (user)=>{
+      // 清理舊監聽
+      if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+      if (unsubReqs) { unsubReqs(); unsubReqs = null; }
+
+      if (!user){
+        show(ui.roleRouter,false); show(ui.memberBind,false); show(ui.coachSection,false); show(ui.adminSection,false);
+        return;
+      }
+      const profile = await ensureUserProfile(user);
+      show(ui.roleRouter,true); ui.myRoleBadge.textContent = profile.role;
+
+      // 會員：尚未同意或未選教練 → 顯示綁定表單
+      const needsBind = (profile.role === 'member') && (!profile.consent || !profile.coachName);
+      show(ui.memberBind, needsBind);
+
+      // 綁定事件
+      ui.bindCoachBtn?.addEventListener('click', async ()=>{
+        const name = (ui.coachNameInput.value||'').trim();
+        const email = (ui.coachEmailInput.value||'').trim();
+        if (!name) return alert('請輸入教練姓名（或填 無）');
+        if (!ui.consentChk.checked) return alert('請先勾選人資料同意書');
+        if (name === '無'){
+          await updateDoc(doc(db,'users',user.uid), { coachName: '無', consent: true, consentAt: serverTimestamp() });
+          show(ui.memberBind,false);
+          alert('已設定為無教練，可直接開始使用。');
+          return;
+        }
+        // 建立待審請求，管理者核可後生效
+        await addDoc(collection(db,'coach_requests'), {
+          memberUid: user.uid,
+          memberName: user.displayName || user.email || user.uid,
+          memberEmail: user.email || '',
+          coachName: name,
+          coachEmail: email || '',
+          consent: true,
+          createdAt: serverTimestamp(),
+          status: 'pending'
+        });
+        // 開啟郵件草稿（若提供 email）
+        if (email){
+          const subject = encodeURIComponent('【體重網站】會員綁定請求');
+          const body = encodeURIComponent(`教練您好：\n\n我（${user.displayName || user.email || user.uid}）想綁定您為我的教練，請協助通知管理者審核。\n網站：linsaipo.github.io/body-weight\n`);
+          window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+        }
+        alert('已送出綁定請求，待管理者審核。');
+        show(ui.memberBind,false);
+      });
+      ui.skipBindBtn?.addEventListener('click', ()=> show(ui.memberBind,false));
+
+      // 教練視角：列出 coachName 為自己名稱的會員（管理者審核後生效）
+      if (profile.role === 'coach' || profile.role === 'admin'){
+        show(ui.coachSection,true);
+        const myName = profile.displayName || user.email || user.uid;
+        const qMembers = query(collection(db,'users'), where('coachName','==', myName));
+        unsubUsers = onSnapshot(qMembers, async snap => {
+          ui.coachMembersTbody.innerHTML = '';
+          for (const d of snap.docs){
+            const u = d.data();
+            // 取最新一筆紀錄
+            const entriesRef = collection(db,'users', d.id, 'entries');
+            const qLast = query(entriesRef, orderBy('date','desc'), limit(1));
+            const lastSnap = await getDocs(qLast);
+            let latestDate = '—', latestWeight = '—';
+            lastSnap.forEach(ed => { const e = ed.data(); latestDate = fmtDate(e.date); latestWeight = e.weight; });
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td class='px-3 py-2'>${u.displayName || u.email || d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td><td class='px-3 py-2'>—</td><td class='px-3 py-2'>—</td>`;
+            ui.coachMembersTbody.appendChild(tr);
+          }
+        });
+      } else {
+        show(ui.coachSection,false);
+      }
+
+      // 管理者視角：審核請求 + 使用者總覽
+      if (profile.role === 'admin'){
+        show(ui.adminSection,true);
+        // 待審請求
+        const qPending = query(collection(db,'coach_requests'), where('status','==','pending'), orderBy('createdAt','asc'));
+        unsubReqs = onSnapshot(qPending, snap => {
+          ui.pendingReqTbody.innerHTML = '';
+          snap.forEach(d => {
+            const r = d.data();
+            const tr = document.createElement('tr');
+            tr.className = 'border-b';
+            const when = r.createdAt?.toDate?.() ? r.createdAt.toDate().toLocaleString() : '—';
+            tr.innerHTML = `<td class='px-3 py-2'>${when}</td><td class='px-3 py-2'>${r.memberName}</td><td class='px-3 py-2'>${r.coachName}</td><td class='px-3 py-2'>${r.coachEmail||''}</td><td class='px-3 py-2'><button class='approve px-3 py-1 rounded bg-emerald-600 text-white mr-2'>核准</button><button class='reject px-3 py-1 rounded bg-slate-200'>退回</button></td>`;
+            tr.querySelector('.approve')?.addEventListener('click', async ()=>{
+              // 寫入會員的 coachName 與 consent
+              await updateDoc(doc(db,'users', r.memberUid), { coachName: r.coachName, consent: true, consentAt: serverTimestamp() });
+              await updateDoc(doc(db,'coach_requests', d.id), { status: 'approved', handledAt: serverTimestamp() });
+            });
+            tr.querySelector('.reject')?.addEventListener('click', async ()=>{
+              await updateDoc(doc(db,'coach_requests', d.id), { status: 'rejected', handledAt: serverTimestamp() });
+            });
+            ui.pendingReqTbody.appendChild(tr);
+          });
+        });
+        // 使用者總覽
+        const qAll = query(collection(db,'users'), orderBy('createdAt','asc'));
+        onSnapshot(qAll, snap => {
+          ui.usersAdminTbody.innerHTML = '';
+          snap.forEach(dd => {
+            const u = dd.data();
+            const tr = document.createElement('tr'); tr.className='border-b';
+            tr.innerHTML = `
+              <td class='px-3 py-2'>${u.displayName || u.email || dd.id}</td>
+              <td class='px-3 py-2'>${u.email || ''}</td>
+              <td class='px-3 py-2'>
+                <select class='roleSel border rounded px-2 py-1'>
+                  <option value='member' ${u.role==='member'?'selected':''}>member</option>
+                  <option value='coach' ${u.role==='coach'?'selected':''}>coach</option>
+                  <option value='admin' ${u.role==='admin'?'selected':''}>admin</option>
+                </select>
+              </td>
+              <td class='px-3 py-2'><input class='coachNameInput border rounded px-2 py-1 w-40' value='${u.coachName||''}' placeholder='教練姓名或 無' /></td>
+              <td class='px-3 py-2'>
+                ${u.role==='coach' ? `<label class='text-sm'><input type='checkbox' class='subChk' ${u.subscription?'checked':''}/> 有效</label>` : '—'}
+              </td>
+              <td class='px-3 py-2 text-right'><button class='saveBtn px-3 py-1 rounded bg-slate-900 text-white'>儲存</button></td>`;
+            tr.querySelector('.saveBtn')?.addEventListener('click', async ()=>{
+              const role = tr.querySelector('.roleSel').value;
+              const coachName = tr.querySelector('.coachNameInput').value.trim() || null;
+              const subEl = tr.querySelector('.subChk'); const subscription = subEl ? subEl.checked : false;
+              await updateDoc(doc(db,'users', dd.id), { role, coachName, subscription });
+              alert('已儲存');
+            });
+            ui.usersAdminTbody.appendChild(tr);
+          });
+        });
+      } else {
+        show(ui.adminSection,false);
+      }
+    });
+
+    // 共享工具
+    function fmtDate(tsOrDate){ const d = tsOrDate?.toDate?.() ? tsOrDate.toDate() : new Date(tsOrDate); const mm = String(d.getMonth()+1).padStart(2,'0'); const dd = String(d.getDate()).padStart(2,'0'); return `${d.getFullYear()}-${mm}-${dd}`; }
+  </script>
 </body>
 </html>
