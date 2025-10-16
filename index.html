@@ -81,18 +81,23 @@
     appleProvider.addScope('email');
     appleProvider.addScope('name');
 
-    el.btnGoogle?.addEventListener('click', async () => {
-      try { await signInWithPopup(auth, googleProvider); }
-      catch { await signInWithRedirect(auth, googleProvider); }
-    });
-    el.btnApple?.addEventListener('click', async () => {
-      try { await signInWithPopup(auth, appleProvider); }
-      catch { await signInWithRedirect(auth, appleProvider); }
-    });
-    getRedirectResult(auth).catch(() => {});
-    el.logoutBtn?.addEventListener('click', async () => { await signOut(auth); });
-    el.openRoleBtn?.addEventListener('click', (e) => {
-      e.preventDefault(); el.roleRouter?.classList.remove('hidden'); el.roleRouter?.scrollIntoView({behavior:'smooth'});
+    function bindUI(){
+      const btnGoogle = document.getElementById('btnGoogle');
+      const btnApple = document.getElementById('btnApple');
+      const logoutBtn = document.getElementById('logoutBtn');
+      const openRoleBtn = document.getElementById('openRoleBtn');
+      if (btnGoogle){ btnGoogle.addEventListener('click', async ()=>{
+        try { await signInWithPopup(auth, googleProvider); }
+        catch { await signInWithRedirect(auth, googleProvider); }
+      }); }
+      if (btnApple){ btnApple.addEventListener('click', async ()=>{
+        try { await signInWithPopup(auth, appleProvider); }
+        catch { await signInWithRedirect(auth, appleProvider); }
+      }); }
+      if (logoutBtn){ logoutBtn.addEventListener('click', async ()=>{ await signOut(auth); }); }
+      if (openRoleBtn){ openRoleBtn.addEventListener('click', (e)=>{ e.preventDefault(); el.roleRouter?.classList.remove('hidden'); el.roleRouter?.scrollIntoView({behavior:'smooth'}); }); }
+    }
+    getRedirectResult(auth).catch(()=>{}); el.roleRouter?.classList.remove('hidden'); el.roleRouter?.scrollIntoView({behavior:'smooth'});
     });
 
     // === 4) 共用工具 ===
@@ -338,9 +343,11 @@
       }
     });
 
-    // === 9) 預設日期填今天 ===
+    // === 9) DOM 準備好後再綁定按鈕 + 預設日期 ===
     document.addEventListener('DOMContentLoaded', () => {
-      const t=new Date(); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date.value = `${yyyy}-${mm}-${dd}`;
+      bindUI();
+      const t=new Date(); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date && (el.date.value = `${yyyy}-${mm}-${dd}`);
+    }); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date.value = `${yyyy}-${mm}-${dd}`;
     });
   </script>
 </head>
