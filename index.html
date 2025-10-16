@@ -310,8 +310,18 @@
           const email = document.getElementById('newUserEmail').value.trim();
           const name = document.getElementById('newUserName').value.trim();
           const role = document.getElementById('newUserRole').value;
-          if (!uid) return alert('請填 UID');
-          await setDoc(doc(db,'users', uid), { email, displayName: name, role, coachName: null, consent: false, subscription: false, createdAt: serverTimestamp() }, { merge: true });
+          if (!uid) { alert('請填 UID'); return; }
+          try {
+            createBtn.disabled = true; const old = createBtn.textContent; createBtn.textContent = '處理中…';
+            await setDoc(doc(db,'users', uid), { email, displayName: name, role, coachName: null, consent: false, subscription: false, createdAt: serverTimestamp() }, { merge: true });
+            alert('已建立/更新使用者檔案');
+            createBtn.textContent = old; createBtn.disabled = false;
+          } catch (err) {
+            console.error('[admin-create-user] 失敗', err);
+            alert('建立失敗：' + (err?.message || err));
+            createBtn.disabled = false; createBtn.textContent = '建立';
+          }
+        });
           alert('已建立/更新使用者檔案');
         });
 
