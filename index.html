@@ -3,16 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>體重會員站（角色制：管理者 / 教練 / 會員）</title>
+  <title>體重會員站（Google / Apple 登入 + 角色制）</title>
+  <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js 與日期 adapter -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signOut, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, OAuthProvider } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
-    import { getFirestore, collection, addDoc, setDoc, getDoc, getDocs, updateDoc, where, query, orderBy, onSnapshot, serverTimestamp, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
 
-    // ⚠️ 換成你的 Firebase 設定
+  <!-- Firebase SDK（v12.4.0）主要功能：Auth + Firestore -->
+  <script type="module">
+    import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, OAuthProvider } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+    import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, deleteDoc, setDoc, getDoc, getDocs, where, updateDoc, limit } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+
+    // === 1) 你的 Firebase 設定（已帶入你專案的值） ===
     const firebaseConfig = {
       apiKey: "AIzaSyD81Aw3raqUcG_EUl8_W_WG3bxcunfA9rQ",
       authDomain: "body-weight-39dfd.firebaseapp.com",
@@ -22,20 +26,35 @@
       appId: "1:745642339903:web:d570fce93146c8861c528a"
     };
 
-    const app = initializeApp(firebaseConfig);
+    // 初始化（避免重複 init）
+    let app; try { app = getApp(); } catch { app = initializeApp(firebaseConfig); }
     const auth = getAuth(app);
     const db = getFirestore(app);
 
-    // === UI refs ===
+    // === 2) UI 元素 ===
     const el = {
-      // nav
-      authSection: document.getElementById('auth-section'),
-      appSection: document.getElementById('app-section'),
+      // header
+      openRoleBtn: document.getElementById('openRoleBtn'),
+      meName: document.getElementById('meName'),
+      logoutBtn: document.getElementById('logoutBtn'),
+      // auth buttons
       btnGoogle: document.getElementById('btnGoogle'),
       btnApple: document.getElementById('btnApple'),
-      logoutBtn: document.getElementById('logoutBtn'),
-      meName: document.getElementById('meName'),
-      // member form
+      // sections
+      authSection: document.getElementById('auth-section'),
+      appSection: document.getElementById('app-section'),
+      roleRouter: document.getElementById('role-router'),
+      myRoleBadge: document.getElementById('myRoleBadge'),
+      memberBind: document.getElementById('member-bind'),
+      coachSection: document.getElementById('coach-section'),
+      adminSection: document.getElementById('admin-section'),
+      // member bind inputs
+      coachNameInput: document.getElementById('coachNameInput'),
+      coachEmailInput: document.getElementById('coachEmailInput'),
+      consentChk: document.getElementById('consentChk'),
+      bindCoachBtn: document.getElementById('bindCoachBtn'),
+      skipBindBtn: document.getElementById('skipBindBtn'),
+      // member entries
       date: document.getElementById('date'),
       weight: document.getElementById('weight'),
       bodyFat: document.getElementById('bodyFat'),
@@ -48,144 +67,265 @@
       emptyHint: document.getElementById('emptyHint'),
       trend7: document.getElementById('trend7'),
       trend30: document.getElementById('trend30'),
-      // onboarding (member coach binding)
-      onboardSection: document.getElementById('onboard-section'),
-      coachNameInput: document.getElementById('coachNameInput'),
-      consentChk: document.getElementById('consentChk'),
-      bindBtn: document.getElementById('bindBtn'),
-      // role sections
-      roleBadge: document.getElementById('roleBadge'),
-      adminSection: document.getElementById('admin-section'),
-      coachSection: document.getElementById('coach-section'),
-      memberSection: document.getElementById('member-section'),
-      // admin widgets
-      reqList: document.getElementById('reqList'),
-      adminMembers: document.getElementById('adminMembers'),
-      adminCoaches: document.getElementById('adminCoaches'),
-      // coach widgets
-      coachMemberList: document.getElementById('coachMemberList'),
-      coachViewName: document.getElementById('coachViewName'),
-      coachChart: document.getElementById('coachChart'),
-      coachTbody: document.getElementById('coachTbody')
-    }
+      // coach/admin tables
+      coachMembersTbody: document.getElementById('coachMembersTbody'),
+      pendingReqTbody: document.getElementById('pendingReqTbody'),
+      usersAdminTbody: document.getElementById('usersAdminTbody'),
+    };
 
-    // === Sign-in Providers ===
+    const ADMIN_EMAIL = 'linsaipo@gmail.com';
+
+    // === 3) 登入提供者 ===
     const googleProvider = new GoogleAuthProvider();
     const appleProvider = new OAuthProvider('apple.com');
+    appleProvider.addScope('email');
+    appleProvider.addScope('name');
 
-    el.btnGoogle.addEventListener('click', async () => {
-      try { await signInWithPopup(auth, googleProvider); } catch (err) { await signInWithRedirect(auth, googleProvider); }
+    el.btnGoogle?.addEventListener('click', async () => {
+      try { await signInWithPopup(auth, googleProvider); }
+      catch { await signInWithRedirect(auth, googleProvider); }
     });
-    el.btnApple.addEventListener('click', async () => {
-      try { appleProvider.addScope('email'); appleProvider.addScope('name'); await signInWithPopup(auth, appleProvider); } catch (err) { await signInWithRedirect(auth, appleProvider); }
+    el.btnApple?.addEventListener('click', async () => {
+      try { await signInWithPopup(auth, appleProvider); }
+      catch { await signInWithRedirect(auth, appleProvider); }
     });
-    getRedirectResult(auth).catch(()=>{});
-    el.logoutBtn.addEventListener('click', async () => { await signOut(auth); });
+    getRedirectResult(auth).catch(() => {});
+    el.logoutBtn?.addEventListener('click', async () => { await signOut(auth); });
+    el.openRoleBtn?.addEventListener('click', (e) => {
+      e.preventDefault(); el.roleRouter?.classList.remove('hidden'); el.roleRouter?.scrollIntoView({behavior:'smooth'});
+    });
 
-    // === Auth state ===
-    onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const name = user.displayName || user.email || user.uid;
-        el.meName.textContent = name;
-        el.authSection.classList.add('hidden');
-        el.appSection.classList.remove('hidden');
-        const role = await ensureProfile(user);
-        setRoleUI(role);
-        if (role === 'member') { startUserDataFeed(user.uid); await maybeShowOnboarding(user); }
-        else if (role === 'admin') { loadAdminDash(); }
-        else if (role === 'coach') { loadCoachDash(); }
-      } else {
-        el.meName.textContent = '';
-        el.appSection.classList.add('hidden');
-        el.authSection.classList.remove('hidden');
-        cleanupUserDataFeed();
+    // === 4) 共用工具 ===
+    const show = (node, on=true) => node?.classList[on? 'remove':'add']('hidden');
+    const fmtDate = (tsOrDate) => { const d = tsOrDate?.toDate?.() ? tsOrDate.toDate() : new Date(tsOrDate); if (Number.isNaN(d.getTime())) return ''; const mm=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${d.getFullYear()}-${mm}-${dd}`; };
+    const safeNum = (v) => (v===null||v===undefined||v==='')? '': Number(v);
+    const escapeHtml = (s) => s?.replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+
+    // === 5) 首頁圖表/表格 ===
+    let weightChart = null, unsubscribeEntries = null;
+    function renderChart(rows){
+      const points = rows.map(r => ({ x: new Date(r.date?.toDate?.() ? r.date.toDate() : r.date), y: Number(r.weight) }));
+      const data = { datasets: [{ label: '體重 (kg)', data: points, tension: 0.3, pointRadius: 3, borderWidth: 2, fill: false }] };
+      const options = { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'day' }, ticks: { autoSkip: true, maxTicksLimit: 8 } }, y: { title: { display: true, text: 'kg' }, ticks: { precision: 1 } } }, plugins: { legend: { display: true }, tooltip: { callbacks: { label: (ctx)=>`體重：${ctx.parsed.y} kg` } } } };
+      if (weightChart) { weightChart.data = data; weightChart.update(); }
+      else { weightChart = new Chart(el.chartCanvas.getContext('2d'), { type: 'line', data, options }); }
+    }
+    function renderTable(rows){
+      el.tbody.innerHTML='';
+      if (!rows.length) { show(el.emptyHint,true); return; }
+      show(el.emptyHint,false);
+      for (const r of rows){
+        const tr = document.createElement('tr'); tr.className='border-b';
+        tr.innerHTML = `
+          <td class="px-3 py-2 text-sm">${fmtDate(r.date)}</td>
+          <td class="px-3 py-2 text-sm font-semibold">${safeNum(r.weight)}</td>
+          <td class="px-3 py-2 text-sm">${safeNum(r.bodyFat)}</td>
+          <td class="px-3 py-2 text-sm">${safeNum(r.muscle)}</td>
+          <td class="px-3 py-2 text-sm">${safeNum(r.waist)}</td>
+          <td class="px-3 py-2 text-sm">${escapeHtml(r.note||'')}</td>
+          <td class="px-3 py-2 text-sm text-right"><button class="text-red-600 hover:underline" data-id="${r.id}">刪除</button></td>`;
+        tr.querySelector('button')?.addEventListener('click', async (e)=>{
+          const id = e.currentTarget.getAttribute('data-id');
+          const user = auth.currentUser; await deleteDoc(doc(db,'users', user.uid, 'entries', id));
+        });
+        el.tbody.appendChild(tr);
       }
-    });
+    }
+    function renderTrends(rows){
+      if (!rows.length) { el.trend7.textContent='—'; el.trend30.textContent='—'; return; }
+      const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
+      const delta = (r)=>{ if(!r.length) return null; return +(Number(r[r.length-1].weight)-Number(r[0].weight)).toFixed(1); };
+      const r7 = rows.filter(r => new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
+      const r30= rows.filter(r => new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30));
+      const d7 = delta(r7), d30 = delta(r30);
+      el.trend7.textContent = d7===null? '—': (d7>0? `+${d7} kg` : `${d7} kg`);
+      el.trend30.textContent = d30===null? '—': (d30>0? `+${d30} kg` : `${d30} kg`);
+    }
 
-    function cleanupUserDataFeed(){ if (unsubscribe) { unsubscribe(); unsubscribe = null; } el.tbody.innerHTML=''; el.emptyHint.classList.remove('hidden'); renderChart([]); el.trend7.textContent='—'; el.trend30.textContent='—'; }
-
-    // === Firestore ===
-    let unsubscribe = null; let weightChart = null; let coachChart = null;
-
-    el.saveBtn?.addEventListener('click', async () => {
-      const user = auth.currentUser; if (!user) return alert('請先登入');
+    // === 6) 會員資料 CRUD ===
+    el.saveBtn?.addEventListener('click', async ()=>{
+      const user = auth.currentUser; if(!user) return alert('請先登入');
       const dateStr = el.date.value; const weightVal = parseFloat(el.weight.value);
       if (!dateStr) return alert('請選擇日期');
       if (Number.isNaN(weightVal)) return alert('請輸入體重');
-      const entry = { date:new Date(dateStr+'T00:00:00'), weight:weightVal, bodyFat: el.bodyFat.value?parseFloat(el.bodyFat.value):null, muscle: el.muscle.value?parseFloat(el.muscle.value):null, waist: el.waist.value?parseFloat(el.waist.value):null, note: el.note.value?.trim()||'', createdAt: serverTimestamp() };
+      const entry = {
+        date: new Date(dateStr+'T00:00:00'),
+        weight: weightVal,
+        bodyFat: el.bodyFat.value ? parseFloat(el.bodyFat.value) : null,
+        muscle: el.muscle.value ? parseFloat(el.muscle.value) : null,
+        waist: el.waist.value ? parseFloat(el.waist.value) : null,
+        note: el.note.value?.trim() || '',
+        createdAt: serverTimestamp()
+      };
       await addDoc(collection(db,'users', user.uid, 'entries'), entry);
       el.weight.value = el.bodyFat.value = el.muscle.value = el.waist.value = el.note.value = '';
     });
 
-    function startUserDataFeed(uid){
-      const q = query(collection(db,'users', uid, 'entries'), orderBy('date','asc'));
-      unsubscribe = onSnapshot(q, snap => { const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()})); renderTable(rows); renderChart(rows); renderTrends(rows); });
+    function startEntriesFeed(uid){
+      const qy = query(collection(db,'users', uid, 'entries'), orderBy('date','asc'));
+      if (unsubscribeEntries) { unsubscribeEntries(); }
+      unsubscribeEntries = onSnapshot(qy, (snap)=>{
+        const rows = []; snap.forEach(d=> rows.push({id:d.id, ...d.data()}));
+        renderTable(rows); renderChart(rows); renderTrends(rows);
+      });
     }
 
-    function renderTable(rows){ el.tbody.innerHTML=''; if(!rows.length){ el.emptyHint.classList.remove('hidden'); return;} el.emptyHint.classList.add('hidden'); for (const r of rows){ const tr=document.createElement('tr'); tr.className='border-b'; tr.innerHTML=`<td class='px-3 py-2 text-sm'>${fmtDate(r.date)}</td><td class='px-3 py-2 text-sm font-semibold'>${safeNum(r.weight)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.muscle)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.waist)}</td><td class='px-3 py-2 text-sm'>${escapeHtml(r.note||'')}</td><td class='px-3 py-2 text-sm text-right'><button class='text-red-600 hover:underline' data-id='${r.id}'>刪除</button></td>`; tr.querySelector('button')?.addEventListener('click', async (e)=>{ const id=e.currentTarget.getAttribute('data-id'); const user=auth.currentUser; await deleteDoc(doc(db,'users',user.uid,'entries',id)); }); el.tbody.appendChild(tr);} }
+    // === 7) 角色/教練綁定/管理 ===
+    let unsubUsers=null, unsubReqs=null;
 
-    function renderChart(rows){ const points=rows.map(r=>({x:new Date(r.date?.toDate?.()?r.date.toDate():r.date), y:Number(r.weight)})); const data={datasets:[{label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false}]}; const options={responsive:true, maintainAspectRatio:false, scales:{x:{type:'time', time:{unit:'day'}}, y:{title:{display:true, text:'kg'}}}}; if(weightChart){ weightChart.data=data; weightChart.update(); } else { weightChart=new Chart(el.chartCanvas.getContext('2d'), {type:'line', data, options}); } }
+    async function ensureUserProfile(user){
+      const uref = doc(db,'users', user.uid);
+      const s = await getDoc(uref);
+      const base = { email:user.email||'', displayName:user.displayName||'', role:'member', coachName:null, consent:false, createdAt: serverTimestamp(), subscription:false };
+      if (!s.exists()){
+        if ((user.email||'').toLowerCase()===ADMIN_EMAIL) base.role='admin';
+        await setDoc(uref, base, { merge:true });
+        return base;
+      } else {
+        const data = s.data();
+        if ((user.email||'').toLowerCase()===ADMIN_EMAIL && data.role!=='admin'){
+          await updateDoc(uref, { role:'admin' }); data.role='admin';
+        }
+        return data;
+      }
+    }
 
-    function renderTrends(rows){ if(!rows.length){ el.trend7.textContent='—'; el.trend30.textContent='—'; return;} const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n); const delta=r=>{ if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); }; const r7=rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7)); const r30=rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30)); const d7=delta(r7), d30=delta(r30); el.trend7.textContent=d7===null?'—':(d7>0?`+${d7} kg`:`${d7} kg`); el.trend30.textContent=d30===null?'—':(d30>0?`+${d30} kg`:`${d30} kg`); }
-
-    document.addEventListener('DOMContentLoaded', ()=>{
-      const t=new Date(); el.date.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
-      // 新增：點擊導向角色區塊
-      document.getElementById('openRoleBtn')?.addEventListener('click', (e)=>{
-        e.preventDefault();
-        document.getElementById('role-router')?.classList.remove('hidden');
-        document.getElementById('role-router')?.scrollIntoView({behavior:'smooth'});
+    function wireMemberBind(user){
+      el.bindCoachBtn?.addEventListener('click', async ()=>{
+        const name=(el.coachNameInput.value||'').trim(); const email=(el.coachEmailInput.value||'').trim();
+        if(!name) return alert('請輸入教練姓名（或填 無）');
+        if(!el.consentChk.checked) return alert('請先勾選人資料同意書');
+        if(name==='無'){
+          await updateDoc(doc(db,'users', user.uid), { coachName:'無', consent:true, consentAt: serverTimestamp() });
+          show(el.memberBind,false); alert('已設定為無教練，可直接使用。'); return;
+        }
+        await addDoc(collection(db,'coach_requests'), {
+          memberUid:user.uid, memberName:user.displayName||user.email||user.uid, memberEmail:user.email||'',
+          coachName:name, coachEmail: email||'', consent:true, status:'pending', createdAt: serverTimestamp()
+        });
+        if (email){
+          const subject=encodeURIComponent('【體重網站】會員綁定請求');
+          const body=encodeURIComponent(`教練您好：\n\n我（${user.displayName||user.email||user.uid}）想綁定您為我的教練，請協助通知管理者審核。\n網站：linsaipo.github.io/body-weight\n`);
+          window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+        }
+        alert('已送出綁定請求，待管理者審核。'); show(el.memberBind,false);
       });
+      el.skipBindBtn?.addEventListener('click', ()=> show(el.memberBind,false));
+    }
+
+    function mountCoachView(profile, user){
+      if (profile.role==='coach' || profile.role==='admin'){
+        show(el.coachSection,true);
+        const myName = profile.displayName || user.email || user.uid;
+        const qMembers = query(collection(db,'users'), where('coachName','==', myName));
+        if (unsubUsers) unsubUsers();
+        unsubUsers = onSnapshot(qMembers, async snap => {
+          el.coachMembersTbody.innerHTML='';
+          for (const d of snap.docs){
+            const u = d.data();
+            const entriesRef = collection(db,'users', d.id, 'entries');
+            const qLast = query(entriesRef, orderBy('date','desc'), limit(1));
+            const last = await getDocs(qLast);
+            let latestDate='—', latestWeight='—';
+            last.forEach(ed=>{ const e = ed.data(); latestDate=fmtDate(e.date); latestWeight=e.weight; });
+            const tr=document.createElement('tr'); tr.className='border-b';
+            tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td>`;
+            el.coachMembersTbody.appendChild(tr);
+          }
+        });
+      } else { show(el.coachSection,false); }
+    }
+
+    function mountAdminView(profile){
+      if (profile.role!=='admin'){ show(el.adminSection,false); return; }
+      show(el.adminSection,true);
+      // 待審請求
+      const qPending = query(collection(db,'coach_requests'), where('status','==','pending'), orderBy('createdAt','asc'));
+      if (unsubReqs) unsubReqs();
+      unsubReqs = onSnapshot(qPending, snap => {
+        el.pendingReqTbody.innerHTML='';
+        snap.forEach(d=>{
+          const r=d.data(); const tr=document.createElement('tr'); tr.className='border-b';
+          const when = r.createdAt?.toDate?.()? r.createdAt.toDate().toLocaleString(): '—';
+          tr.innerHTML = `<td class='px-3 py-2'>${when}</td><td class='px-3 py-2'>${r.memberName}</td><td class='px-3 py-2'>${r.coachName}</td><td class='px-3 py-2'><button class='approve px-3 py-1 rounded bg-emerald-600 text-white mr-2'>核准</button><button class='reject px-3 py-1 rounded bg-slate-200'>退回</button></td>`;
+          tr.querySelector('.approve')?.addEventListener('click', async ()=>{
+            await updateDoc(doc(db,'users', r.memberUid), { coachName:r.coachName, consent:true, consentAt: serverTimestamp() });
+            await updateDoc(doc(db,'coach_requests', d.id), { status:'approved', handledAt: serverTimestamp() });
+          });
+          tr.querySelector('.reject')?.addEventListener('click', async ()=>{
+            await updateDoc(doc(db,'coach_requests', d.id), { status:'rejected', handledAt: serverTimestamp() });
+          });
+          el.pendingReqTbody.appendChild(tr);
+        });
+      });
+      // 使用者總覽
+      const qAll = query(collection(db,'users'), orderBy('createdAt','asc'));
+      onSnapshot(qAll, snap => {
+        el.usersAdminTbody.innerHTML='';
+        snap.forEach(dd=>{
+          const u=dd.data(); const tr=document.createElement('tr'); tr.className='border-b';
+          tr.innerHTML = `
+            <td class='px-3 py-2'>${u.displayName||u.email||dd.id}</td>
+            <td class='px-3 py-2'>${u.email||''}</td>
+            <td class='px-3 py-2'>
+              <select class='roleSel border rounded px-2 py-1'>
+                <option value='member' ${u.role==='member'?'selected':''}>member</option>
+                <option value='coach' ${u.role==='coach'?'selected':''}>coach</option>
+                <option value='admin' ${u.role==='admin'?'selected':''}>admin</option>
+              </select>
+            </td>
+            <td class='px-3 py-2'><input class='coachNameInput border rounded px-2 py-1 w-40' value='${u.coachName||''}' placeholder='教練姓名或 無' /></td>
+            <td class='px-3 py-2'>${u.role==='coach'? `<label class='text-sm'><input type='checkbox' class='subChk' ${u.subscription?'checked':''}/> 有效</label>`: '—'}</td>
+            <td class='px-3 py-2 text-right'><button class='saveBtn px-3 py-1 rounded bg-slate-900 text-white'>儲存</button></td>`;
+          tr.querySelector('.saveBtn')?.addEventListener('click', async ()=>{
+            const role=tr.querySelector('.roleSel').value;
+            const coachName=tr.querySelector('.coachNameInput').value.trim()||null;
+            const subEl=tr.querySelector('.subChk'); const subscription=subEl? subEl.checked:false;
+            await updateDoc(doc(db,'users', dd.id), { role, coachName, subscription });
+            alert('已儲存');
+          });
+          el.usersAdminTbody.appendChild(tr);
+        });
+      });
+    }
+
+    // === 8) 登入狀態監聽 ===
+    onAuthStateChanged(auth, async (user)=>{
+      // 清理監聽
+      if (unsubUsers) { unsubUsers(); unsubUsers=null; }
+      if (unsubReqs) { unsubReqs(); unsubReqs=null; }
+
+      if (user){
+        el.meName.textContent = user.displayName || user.email || '已登入';
+        show(el.authSection,false); show(el.appSection,true); show(el.roleRouter,true);
+        startEntriesFeed(user.uid);
+
+        const profile = await ensureUserProfile(user);
+        el.myRoleBadge.textContent = profile.role;
+
+        // 會員需要先完成同意與教練選擇
+        const needsBind = (profile.role==='member') && (!profile.consent || !profile.coachName);
+        show(el.memberBind, needsBind);
+        if (needsBind) wireMemberBind(user);
+
+        mountCoachView(profile, user);
+        mountAdminView(profile);
+      } else {
+        el.meName.textContent='';
+        show(el.appSection,false); show(el.roleRouter,false); show(el.memberBind,false); show(el.coachSection,false); show(el.adminSection,false);
+      }
     });
 
-    // === Roles & Profiles ===
-    const ADMIN_EMAIL = 'linsaipo@gmail.com';
-
-    async function ensureProfile(user){
-      if (user.email === ADMIN_EMAIL) {
-        await setDoc(doc(db,'profiles', user.uid), { uid:user.uid, role:'admin', email:user.email||'', displayName:user.displayName||'', updatedAt: serverTimestamp() }, { merge:true });
-        await setDoc(doc(db,'users', user.uid, 'profile', 'profile'), { role:'admin', email:user.email||'', displayName:user.displayName||'', updatedAt: serverTimestamp() }, { merge:true });
-        return 'admin';
-      }
-      const pRef=doc(db,'profiles', user.uid); const snap=await getDoc(pRef);
-      if (!snap.exists()){
-        const role='member';
-        await setDoc(pRef, { uid:user.uid, role, email:user.email||'', displayName:user.displayName||'', coachUid:null, coachName:null, consent:false, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-        await setDoc(doc(db,'users', user.uid, 'profile', 'profile'), { role, coachUid:null, coachName:null, consent:false, email:user.email||'', displayName:user.displayName||'', updatedAt: serverTimestamp() });
-        return role;
-      }
-      return snap.data().role || 'member';
-    }
-
-    function setRoleUI(role){ el.roleBadge.textContent = role.toUpperCase(); el.adminSection.classList.toggle('hidden', role!=='admin'); el.coachSection.classList.toggle('hidden', role!=='coach'); el.memberSection.classList.toggle('hidden', role!=='member'); }
-
-    async function maybeShowOnboarding(user){ const prof = await getDoc(doc(db,'profiles', user.uid)); const data = prof.data()||{}; const need = !(data.consent) || (!data.coachUid && data.coachName==null); el.onboardSection.classList.toggle('hidden', !need); }
-
-    el.bindBtn?.addEventListener('click', async ()=>{ const user=auth.currentUser; if(!user) return; if(!el.consentChk.checked) return alert('請先勾選個資同意書'); const name=(el.coachNameInput.value||'').trim()||'無'; const reqId=`${user.uid}-${Date.now()}`; await setDoc(doc(db,'coachRequests', reqId), { id:reqId, memberUid:user.uid, memberName:user.displayName||user.email||'', memberEmail:user.email||'', coachName:name, status:'pending', createdAt: serverTimestamp() }); await setDoc(doc(db,'profiles', user.uid), { consent:true, coachName:name }, { merge:true }); await setDoc(doc(db,'users', user.uid, 'profile', 'profile'), { consent:true, coachName:name }, { merge:true }); alert('已送出綁定申請，等待管理者確認'); el.onboardSection.classList.add('hidden'); });
-
-    // === Admin Dashboard ===
-    async function loadAdminDash(){
-      const q1=query(collection(db,'coachRequests'));
-      const snap=await getDocs(q1); el.reqList.innerHTML='';
-      snap.forEach(d=>{ const r=d.data(); const li=document.createElement('li'); li.className='p-3 border rounded-lg flex items-center justify-between'; li.innerHTML=`<div><div class='font-medium'>會員：${escapeHtml(r.memberName||r.memberEmail)}</div><div class='text-xs text-slate-500'>欲綁定教練：${escapeHtml(r.coachName||'無')}｜狀態：${r.status}</div></div>`; const box=document.createElement('div'); box.className='flex gap-2'; const btnApprove=document.createElement('button'); btnApprove.className='px-3 py-1 rounded bg-emerald-600 text-white'; btnApprove.textContent='手動綁定'; btnApprove.onclick=async()=>{ const coachName=prompt('輸入教練名稱（留空=無）', r.coachName||''); const coachUid=prompt('輸入教練UID（暫時人工設定，可留空表示無）',''); await setDoc(doc(db,'profiles', r.memberUid), { coachName:coachName||'無', coachUid:coachUid||null }, { merge:true }); await setDoc(doc(db,'users', r.memberUid, 'profile', 'profile'), { coachName:coachName||'無', coachUid:coachUid||null }, { merge:true }); await updateDoc(doc(db,'coachRequests', r.id), { status:'approved', approvedAt: serverTimestamp() }); loadAdminDash(); }; const btnRoleCoach=document.createElement('button'); btnRoleCoach.className='px-3 py-1 rounded bg-slate-700 text-white'; btnRoleCoach.textContent='設此人為教練（填UID）'; btnRoleCoach.onclick=async()=>{ const uid=prompt('輸入要設為教練的使用者 UID'); if(!uid) return; await setDoc(doc(db,'profiles', uid), { role:'coach' }, { merge:true }); await setDoc(doc(db,'users', uid, 'profile', 'profile'), { role:'coach' }, { merge:true }); alert('已設為教練'); }; box.appendChild(btnApprove); box.appendChild(btnRoleCoach); li.appendChild(box); el.reqList.appendChild(li); });
-      const profs=await getDocs(collection(db,'profiles')); el.adminMembers.innerHTML=''; el.adminCoaches.innerHTML=''; profs.forEach(d=>{ const p=d.data(); const item=document.createElement('li'); item.className='px-3 py-2 border-b text-sm'; item.textContent=`${p.displayName||p.email||p.uid}｜角色:${p.role||'member'}｜教練:${p.coachName||'無'}`; if(p.role==='coach') el.adminCoaches.appendChild(item); else el.adminMembers.appendChild(item); });
-    }
-
-    // === Coach Dashboard ===
-    async function loadCoachDash(){ const user=auth.currentUser; if(!user) return; const qs=query(collection(db,'profiles'), where('coachUid','==', user.uid)); const snap=await getDocs(qs); el.coachMemberList.innerHTML=''; snap.forEach(d=>{ const p=d.data(); const li=document.createElement('li'); li.className='p-3 border rounded-lg flex items-center justify-between'; li.innerHTML = `<div class='font-medium'>${escapeHtml(p.displayName||p.email||p.uid)}</div>`; const b=document.createElement('button'); b.className='px-3 py-1 rounded bg-slate-900 text-white'; b.textContent='查看'; b.onclick=()=>openMemberForCoach(p.uid, p.displayName||p.email||p.uid); li.appendChild(b); el.coachMemberList.appendChild(li); }); }
-
-    async function openMemberForCoach(memberUid, label){ el.coachViewName.textContent=label; const qE=query(collection(db,'users', memberUid, 'entries'), orderBy('date','asc')); const s=await getDocs(qE); el.coachTbody.innerHTML=''; const rows=[]; s.forEach(d=>rows.push({id:d.id, ...d.data()})); for(const r of rows){ const tr=document.createElement('tr'); tr.className='border-b'; tr.innerHTML=`<td class='px-3 py-2'>${fmtDate(r.date)}</td><td class='px-3 py-2'>${safeNum(r.weight)}</td>`; el.coachTbody.appendChild(tr);} const pts=rows.map(r=>({x:new Date(r.date?.toDate?.()?r.date.toDate():r.date), y:Number(r.weight)})); const data={datasets:[{label:'體重 (kg)', data:pts, tension:0.3, pointRadius:3, borderWidth:2, fill:false}]}; const options={responsive:true, maintainAspectRatio:false, scales:{x:{type:'time', time:{unit:'day'}}, y:{title:{display:true, text:'kg'}}}}; if(coachChart){ coachChart.data=data; coachChart.update(); } else { coachChart=new Chart(el.coachChart.getContext('2d'), {type:'line', data, options}); } }
-
-    // helpers
-    function fmtDate(t){ const d=t?.toDate?.()?t.toDate():new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-    function safeNum(v){ return (v===null||v===undefined||v==='')?'':Number(v); }
-    function escapeHtml(s){ return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
+    // === 9) 預設日期填今天 ===
+    document.addEventListener('DOMContentLoaded', () => {
+      const t=new Date(); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date.value = `${yyyy}-${mm}-${dd}`;
+    });
   </script>
 </head>
 <body class="bg-slate-50 min-h-dvh">
   <header class="bg-white border-b sticky top-0 z-10">
     <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-lg sm:text-xl font-bold">體重會員站（角色制：管理者 / 教練 / 會員）</h1>
+      <h1 class="text-lg sm:text-xl font-bold">體重會員站（Google / Apple 登入 + 角色制）</h1>
       <div id="user-area" class="text-sm flex items-center gap-2">
         <a href="#role-router" id="openRoleBtn" class="px-3 py-1.5 rounded-lg bg-slate-100 border hover:bg-slate-200">角色/管理</a>
         <span id="meName" class="text-slate-600"></span>
@@ -194,12 +334,7 @@
     </div>
   </header>
 
-  <!-- 角色徽章 -->
-  <div class="max-w-5xl mx-auto px-4 mt-3">
-    <span class="inline-flex items-center gap-2 text-xs bg-slate-900 text-white px-2.5 py-1 rounded-full">目前角色：<b id="roleBadge">...</b></span>
-  </div>
-
-  <!-- 未登入區塊 -->
+  <!-- 未登入：提供 Google/Apple 登入 -->
   <section id="auth-section" class="max-w-md mx-auto px-4 py-8">
     <div class="bg-white rounded-2xl shadow p-6">
       <h2 class="text-xl font-bold mb-4">選擇登入方式</h2>
@@ -212,107 +347,78 @@
           <svg viewBox="0 0 14 18" class="w-4 h-4 fill-current"><path d="M9.57.16a3.45 3.45 0 0 1-.82 2.56c-.7.83-1.86 1.49-3.01 1.4-.15-1.03.43-2.12 1.07-2.76A3.56 3.56 0 0 1 9.57.16Zm3.69 14.8c-.5 1.15-.74 1.65-1.38 2.66-1.1 1.7-2.65 3.83-4.56 3.86-1.06.02-1.79-.36-2.69-.36-.9 0-1.67.35-2.7.37-1.88.04-3.48-1.84-4.58-3.53C-.2 15.94-.64 13.4.5 11.47c.82-1.35 2.11-2.21 3.57-2.24 1.01-.02 1.95.4 2.66.4.7 0 1.85-.49 3.13-.42 1.26.08 2.41.52 3.18 1.33-2.8 1.6-2.35 5.79 1.22 6.42Z"/></svg>
           <span>使用 Apple 登入</span>
         </button>
-        <p class="text-xs text-slate-500">提示：請先在 Firebase 啟用對應的提供者，並把 <code>linsaipo.github.io</code> 加到授權網域。</p>
+        <p class="text-xs text-slate-500">提示：請先在 Firebase Authentication 中啟用對應提供者，並把 <code>linsaipo.github.io</code> 加到授權網域。</p>
       </div>
     </div>
   </section>
 
-  <!-- 主應用區（含三種角色分頁） -->
-  <section id="app-section" class="hidden max-w-6xl mx-auto px-4 py-6 space-y-8">
-
-    <!-- 會員首次登入：教練綁定 + 個資同意書 -->
-    <div id="onboard-section" class="hidden bg-white rounded-2xl shadow p-6">
-      <h2 class="text-lg font-bold mb-2">選擇你的教練</h2>
-      <p class="text-sm text-slate-600 mb-3">請輸入教練名稱，若沒有教練請填 <b>無</b>。綁定前必須勾選個資同意書。</p>
-      <div class="grid sm:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-sm mb-1">教練名字</label>
-          <input id="coachNameInput" class="w-full px-3 py-2 rounded border" placeholder="例如：王教練 / 無" />
-        </div>
-        <div class="sm:col-span-2 flex items-start gap-2 mt-2">
-          <input id="consentChk" type="checkbox" class="mt-1" />
-          <label for="consentChk" class="text-sm text-slate-700">我同意網站蒐集、處理與利用我的身體數據，用於減重追蹤與教練指導（用途、保存與刪除方式詳見隱私權政策）。</label>
-        </div>
-      </div>
-      <button id="bindBtn" class="mt-4 px-4 py-2 rounded-lg bg-emerald-600 text-white">送出綁定申請</button>
-    </div>
-
-    <!-- 管理者頁 -->
-    <div id="admin-section" class="hidden bg-white rounded-2xl shadow p-6">
-      <h2 class="text-lg font-bold mb-4">管理者儀表板</h2>
-      <div class="grid lg:grid-cols-3 gap-6">
-        <div class="lg:col-span-1">
-          <h3 class="font-semibold mb-2">待處理綁定申請</h3>
-          <ul id="reqList" class="space-y-2"></ul>
-          <p class="text-xs text-slate-500 mt-2">測試期間：手動輸入教練 UID 與名稱完成綁定。</p>
-        </div>
-        <div>
-          <h3 class="font-semibold mb-2">會員列表</h3>
-          <ul id="adminMembers" class="border rounded-lg divide-y"></ul>
-        </div>
-        <div>
-          <h3 class="font-semibold mb-2">教練列表</h3>
-          <ul id="adminCoaches" class="border rounded-lg divide-y"></ul>
-        </div>
-      </div>
-    </div>
-
-    <!-- 教練頁 -->
-    <div id="coach-section" class="hidden bg-white rounded-2xl shadow p-6">
-      <h2 class="text-lg font-bold mb-4">教練儀表板</h2>
-      <div class="grid lg:grid-cols-2 gap-6">
-        <div>
-          <h3 class="font-semibold mb-2">我的會員</h3>
-          <ul id="coachMemberList" class="space-y-2"></ul>
-        </div>
-        <div>
-          <div class="flex items-center justify-between mb-2"><h3 class="font-semibold">會員走勢圖</h3><div class="text-sm text-slate-600" id="coachViewName"></div></div>
-          <div class="h-[300px]"><canvas id="coachChart" class="w-full h-full"></canvas></div>
-          <div class="mt-4 overflow-x-auto">
-            <table class="min-w-full text-left text-sm">
-              <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">日期</th><th class="px-3 py-2">體重 (kg)</th></tr></thead>
-              <tbody id="coachTbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 會員頁（原本的表單+圖表） -->
-    <div id="member-section" class="hidden grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <!-- 已登入主介面：左表單 + 右圖表/清單 -->
+  <section id="app-section" class="hidden max-w-5xl mx-auto px-4 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- 左側：輸入表單 -->
       <div class="lg:col-span-1">
         <div class="bg-white rounded-2xl shadow p-6 sticky top-20">
           <h2 class="text-lg font-bold mb-4">新增身體數據</h2>
           <div class="space-y-3">
-            <label class="block text-sm mb-1">日期</label>
-            <input id="date" type="date" class="w-full px-3 py-2 rounded border" />
-            <label class="block text-sm mb-1">體重 (kg)*</label>
-            <input id="weight" type="number" step="0.1" class="w-full px-3 py-2 rounded border" />
-            <label class="block text-sm mb-1">體脂率 (%)</label>
-            <input id="bodyFat" type="number" step="0.1" class="w-full px-3 py-2 rounded border" />
-            <label class="block text-sm mb-1">肌肉率 (%)</label>
-            <input id="muscle" type="number" step="0.1" class="w-full px-3 py-2 rounded border" />
-            <label class="block text-sm mb-1">腰圍 (cm)</label>
-            <input id="waist" type="number" step="0.1" class="w-full px-3 py-2 rounded border" />
-            <label class="block text-sm mb-1">備註</label>
-            <textarea id="note" rows="2" class="w-full px-3 py-2 rounded border"></textarea>
-            <button id="saveBtn" class="w-full mt-2 px-4 py-2 rounded-lg bg-emerald-600 text-white">儲存</button>
+            <div>
+              <label class="block text-sm mb-1">日期</label>
+              <input id="date" type="date" class="w-full px-3 py-2 rounded border" />
+            </div>
+            <div>
+              <label class="block text-sm mb-1">體重 (kg)<span class="text-red-500"> *</span></label>
+              <input id="weight" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" placeholder="例如 72.3" />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm mb-1">體脂率 (%)</label>
+                <input id="bodyFat" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">肌肉率 (%)</label>
+                <input id="muscle" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm mb-1">腰圍 (cm)</label>
+              <input id="waist" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+            </div>
+            <div>
+              <label class="block text-sm mb-1">備註</label>
+              <textarea id="note" rows="2" class="w-full px-3 py-2 rounded border" placeholder="睡不飽、重訓日、外食等…"></textarea>
+            </div>
+            <button id="saveBtn" class="w-full mt-2 px-4 py-2 rounded-lg bg-emerald-600 text-white hover:opacity-90">儲存</button>
           </div>
+          <p class="text-xs text-slate-500 mt-3">資料會儲存在你的帳號底下（Firestore）。</p>
         </div>
       </div>
+
+      <!-- 右側：圖表 + 清單 -->
       <div class="lg:col-span-2 space-y-6">
         <div class="bg-white rounded-2xl shadow p-6 h-[360px]">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-lg font-bold">體重走勢圖</h2>
-            <div class="text-sm text-slate-600">近7天：<span id="trend7">—</span>，近30天：<span id="trend30">—</span></div>
+            <div class="text-sm text-slate-600">近 7 天：<span id="trend7">—</span>，近 30 天：<span id="trend30">—</span></div>
           </div>
           <canvas id="weightChart" class="w-full h-full"></canvas>
         </div>
+
         <div class="bg-white rounded-2xl shadow overflow-hidden">
-          <div class="p-6 border-b"><h2 class="text-lg font-bold">歷史紀錄</h2></div>
+          <div class="p-6 border-b">
+            <h2 class="text-lg font-bold">歷史紀錄</h2>
+          </div>
           <div class="overflow-x-auto">
             <table class="min-w-full text-left">
-              <thead><tr class="bg-slate-50 border-b text-sm"><th class="px-3 py-2 font-semibold">日期</th><th class="px-3 py-2 font-semibold">體重 (kg)</th><th class="px-3 py-2 font-semibold">體脂率 (%)</th><th class="px-3 py-2 font-semibold">肌肉率 (%)</th><th class="px-3 py-2 font-semibold">腰圍 (cm)</th><th class="px-3 py-2 font-semibold">備註</th><th class="px-3 py-2"></th></tr></thead>
+              <thead>
+                <tr class="bg-slate-50 border-b text-sm">
+                  <th class="px-3 py-2 font-semibold">日期</th>
+                  <th class="px-3 py-2 font-semibold">體重 (kg)</th>
+                  <th class="px-3 py-2 font-semibold">體脂率 (%)</th>
+                  <th class="px-3 py-2 font-semibold">肌肉率 (%)</th>
+                  <th class="px-3 py-2 font-semibold">腰圍 (cm)</th>
+                  <th class="px-3 py-2 font-semibold">備註</th>
+                  <th class="px-3 py-2"></th>
+                </tr>
+              </thead>
               <tbody id="tbody"></tbody>
             </table>
             <p id="emptyHint" class="px-6 py-6 text-sm text-slate-500">目前沒有資料，請從左側新增一筆紀錄。</p>
@@ -320,196 +426,89 @@
         </div>
       </div>
     </div>
-
   </section>
 
-  <footer class="max-w-6xl mx-auto px-4 py-10 text-center text-xs text-slate-500">Demo 站，支援三角色（管理者/教練/會員）。測試期間由管理者人工綁定教練。正式版可改為自動寄信與教練同意流程。</footer>
-  <!-- 角色與綁定/審核邏輯（新增） -->
-  <script type="module">
-    import { getApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
-    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
-    import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, onSnapshot, query, where, orderBy, serverTimestamp, getDocs, limit } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+  <!-- 角色切換的主容器 -->
+  <section id="role-router" class="max-w-5xl mx-auto px-4 py-6 hidden">
+    <div class="grid gap-4 sm:grid-cols-3">
+      <div class="rounded-xl border bg-white p-4">
+        <h3 class="font-bold mb-2">我的角色</h3>
+        <p class="text-sm text-slate-600">管理者（linsaipo@gmail.com）可檢視與設定所有資料。</p>
+        <div class="mt-3 text-sm">目前：<span id="myRoleBadge" class="inline-block rounded-lg bg-slate-100 px-2 py-1">…</span></div>
+      </div>
+      <div class="rounded-xl border bg-white p-4 sm:col-span-2">
+        <h3 class="font-bold mb-2">快速導覽</h3>
+        <div class="flex flex-wrap gap-2 text-sm">
+          <a href="#member-bind" class="underline">會員綁定表單</a>
+          <a href="#coach-section" class="underline">教練頁</a>
+          <a href="#admin-section" class="underline">管理者頁</a>
+        </div>
+      </div>
+    </div>
+  </section>
 
-    const app = getApp();
-    const auth = getAuth(app);
-    const db = getFirestore(app);
+  <!-- 會員：教練綁定 & 同意書 -->
+  <section id="member-bind" class="max-w-2xl mx-auto px-4 py-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-bold mb-3">選擇教練與個資同意</h2>
+      <p class="text-sm text-slate-600 mb-4">請輸入教練姓名（沒有教練請輸入「無」）。若提供 Email，系統會打開郵件通知草稿。</p>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm mb-1">教練姓名 <span class="text-red-500">*</span></label>
+          <input id="coachNameInput" class="w-full px-3 py-2 rounded border" placeholder="例如：王小教／或填 無" />
+        </div>
+        <div>
+          <label class="block text-sm mb-1">教練 Email（選填）</label>
+          <input id="coachEmailInput" type="email" class="w-full px-3 py-2 rounded border" placeholder="例如：coach@example.com" />
+        </div>
+      </div>
+      <label class="flex items-start gap-2 mt-4 text-sm">
+        <input id="consentChk" type="checkbox" class="mt-1" />
+        <span>我同意本網站蒐集與處理本人之身體數據（體重、體脂、腰圍等）以供教練追蹤與指導之用，並同意提供予指定教練與管理者查閱。</span>
+      </label>
+      <div class="flex gap-3 mt-4">
+        <button id="bindCoachBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white">送出並綁定</button>
+        <button id="skipBindBtn" class="px-4 py-2 rounded-lg bg-slate-100">暫不綁定</button>
+      </div>
+      <p class="text-xs text-slate-500 mt-3">測試期間：綁定請求會寫入 Firestore 的 <code>coach_requests</code>，管理者審核後生效。若填了 Email，會開啟郵件草稿讓你寄給教練。</p>
+    </div>
+  </section>
 
-    const ADMIN_EMAIL = 'linsaipo@gmail.com';
+  <!-- 教練頁：查看名單與數據概覽 -->
+  <section id="coach-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-bold mb-4">我的會員</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm">
+          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">會員</th><th class="px-3 py-2">最後紀錄日</th><th class="px-3 py-2">最新體重</th></tr></thead>
+          <tbody id="coachMembersTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
-    const $ = (id)=>document.getElementById(id);
-    const ui = {
-      roleRouter: $('role-router'), myRoleBadge: $('myRoleBadge'),
-      memberBind: $('member-bind'), coachNameInput: $('coachNameInput'), coachEmailInput: $('coachEmailInput'), consentChk: $('consentChk'), bindCoachBtn: $('bindCoachBtn'), skipBindBtn: $('skipBindBtn'),
-      coachSection: $('coach-section'), coachMembersTbody: $('coachMembersTbody'),
-      adminSection: $('admin-section'), pendingReqTbody: $('pendingReqTbody'), usersAdminTbody: $('usersAdminTbody'),
-    };
+  <!-- 管理員頁：全局檢視與審核 -->
+  <section id="admin-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-6 mb-6">
+      <h2 class="text-lg font-bold mb-4">待審核：會員教練綁定請求</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm">
+          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">時間</th><th class="px-3 py-2">會員</th><th class="px-3 py-2">教練姓名</th><th class="px-3 py-2">操作</th></tr></thead>
+          <tbody id="pendingReqTbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-bold mb-4">使用者總覽</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm">
+          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">名稱</th><th class="px-3 py-2">Email</th><th class="px-3 py-2">角色</th><th class="px-3 py-2">教練姓名</th><th class="px-3 py-2">訂閱（教練）</th><th class="px-3 py-2">操作</th></tr></thead>
+          <tbody id="usersAdminTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
-    // 取得/建立使用者檔案
-    async function ensureUserProfile(user){
-      const uref = doc(db, 'users', user.uid);
-      const snap = await getDoc(uref);
-      const base = { email: user.email || '', displayName: user.displayName || '', role: 'member', coachName: null, consent: false, createdAt: serverTimestamp(), subscription: false };
-      if (!snap.exists()){
-        // 首次登入
-        if ((user.email || '').toLowerCase() === ADMIN_EMAIL) base.role = 'admin';
-        await setDoc(uref, base, { merge: true });
-        return { ...base };
-      } else {
-        const data = snap.data();
-        // 若是管理者帳號，自動升級角色
-        if ((user.email || '').toLowerCase() === ADMIN_EMAIL && data.role !== 'admin'){
-          await updateDoc(uref, { role: 'admin' });
-          data.role = 'admin';
-        }
-        return data;
-      }
-    }
-
-    function show(el, on){ el.classList[on?'remove':'add']('hidden'); }
-
-    let unsubUsers = null, unsubReqs = null;
-
-    onAuthStateChanged(auth, async (user)=>{
-      // 清理舊監聽
-      if (unsubUsers) { unsubUsers(); unsubUsers = null; }
-      if (unsubReqs) { unsubReqs(); unsubReqs = null; }
-
-      if (!user){
-        show(ui.roleRouter,false); show(ui.memberBind,false); show(ui.coachSection,false); show(ui.adminSection,false);
-        return;
-      }
-      const profile = await ensureUserProfile(user);
-      show(ui.roleRouter,true); ui.myRoleBadge.textContent = profile.role;
-
-      // 會員：尚未同意或未選教練 → 顯示綁定表單
-      const needsBind = (profile.role === 'member') && (!profile.consent || !profile.coachName);
-      show(ui.memberBind, needsBind);
-
-      // 綁定事件
-      ui.bindCoachBtn?.addEventListener('click', async ()=>{
-        const name = (ui.coachNameInput.value||'').trim();
-        const email = (ui.coachEmailInput.value||'').trim();
-        if (!name) return alert('請輸入教練姓名（或填 無）');
-        if (!ui.consentChk.checked) return alert('請先勾選人資料同意書');
-        if (name === '無'){
-          await updateDoc(doc(db,'users',user.uid), { coachName: '無', consent: true, consentAt: serverTimestamp() });
-          show(ui.memberBind,false);
-          alert('已設定為無教練，可直接開始使用。');
-          return;
-        }
-        // 建立待審請求，管理者核可後生效
-        await addDoc(collection(db,'coach_requests'), {
-          memberUid: user.uid,
-          memberName: user.displayName || user.email || user.uid,
-          memberEmail: user.email || '',
-          coachName: name,
-          coachEmail: email || '',
-          consent: true,
-          createdAt: serverTimestamp(),
-          status: 'pending'
-        });
-        // 開啟郵件草稿（若提供 email）
-        if (email){
-          const subject = encodeURIComponent('【體重網站】會員綁定請求');
-          const body = encodeURIComponent(`教練您好：
-
-我（${user.displayName || user.email || user.uid}）想綁定您為我的教練，請協助通知管理者審核。
-網站：linsaipo.github.io/body-weight
-`);
-          window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
-        }
-        alert('已送出綁定請求，待管理者審核。');
-        show(ui.memberBind,false);
-      });
-      ui.skipBindBtn?.addEventListener('click', ()=> show(ui.memberBind,false));
-
-      // 教練視角：列出 coachName 為自己名稱的會員（管理者審核後生效）
-      if (profile.role === 'coach' || profile.role === 'admin'){
-        show(ui.coachSection,true);
-        const myName = profile.displayName || user.email || user.uid;
-        const qMembers = query(collection(db,'users'), where('coachName','==', myName));
-        unsubUsers = onSnapshot(qMembers, async snap => {
-          ui.coachMembersTbody.innerHTML = '';
-          for (const d of snap.docs){
-            const u = d.data();
-            // 取最新一筆紀錄
-            const entriesRef = collection(db,'users', d.id, 'entries');
-            const qLast = query(entriesRef, orderBy('date','desc'), limit(1));
-            const lastSnap = await getDocs(qLast);
-            let latestDate = '—', latestWeight = '—';
-            lastSnap.forEach(ed => { const e = ed.data(); latestDate = fmtDate(e.date); latestWeight = e.weight; });
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td class='px-3 py-2'>${u.displayName || u.email || d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td><td class='px-3 py-2'>—</td><td class='px-3 py-2'>—</td>`;
-            ui.coachMembersTbody.appendChild(tr);
-          }
-        });
-      } else {
-        show(ui.coachSection,false);
-      }
-
-      // 管理者視角：審核請求 + 使用者總覽
-      if (profile.role === 'admin'){
-        show(ui.adminSection,true);
-        // 待審請求
-        const qPending = query(collection(db,'coach_requests'), where('status','==','pending'), orderBy('createdAt','asc'));
-        unsubReqs = onSnapshot(qPending, snap => {
-          ui.pendingReqTbody.innerHTML = '';
-          snap.forEach(d => {
-            const r = d.data();
-            const tr = document.createElement('tr');
-            tr.className = 'border-b';
-            const when = r.createdAt?.toDate?.() ? r.createdAt.toDate().toLocaleString() : '—';
-            tr.innerHTML = `<td class='px-3 py-2'>${when}</td><td class='px-3 py-2'>${r.memberName}</td><td class='px-3 py-2'>${r.coachName}</td><td class='px-3 py-2'>${r.coachEmail||''}</td><td class='px-3 py-2'><button class='approve px-3 py-1 rounded bg-emerald-600 text-white mr-2'>核准</button><button class='reject px-3 py-1 rounded bg-slate-200'>退回</button></td>`;
-            tr.querySelector('.approve')?.addEventListener('click', async ()=>{
-              // 寫入會員的 coachName 與 consent
-              await updateDoc(doc(db,'users', r.memberUid), { coachName: r.coachName, consent: true, consentAt: serverTimestamp() });
-              await updateDoc(doc(db,'coach_requests', d.id), { status: 'approved', handledAt: serverTimestamp() });
-            });
-            tr.querySelector('.reject')?.addEventListener('click', async ()=>{
-              await updateDoc(doc(db,'coach_requests', d.id), { status: 'rejected', handledAt: serverTimestamp() });
-            });
-            ui.pendingReqTbody.appendChild(tr);
-          });
-        });
-        // 使用者總覽
-        const qAll = query(collection(db,'users'), orderBy('createdAt','asc'));
-        onSnapshot(qAll, snap => {
-          ui.usersAdminTbody.innerHTML = '';
-          snap.forEach(dd => {
-            const u = dd.data();
-            const tr = document.createElement('tr'); tr.className='border-b';
-            tr.innerHTML = `
-              <td class='px-3 py-2'>${u.displayName || u.email || dd.id}</td>
-              <td class='px-3 py-2'>${u.email || ''}</td>
-              <td class='px-3 py-2'>
-                <select class='roleSel border rounded px-2 py-1'>
-                  <option value='member' ${u.role==='member'?'selected':''}>member</option>
-                  <option value='coach' ${u.role==='coach'?'selected':''}>coach</option>
-                  <option value='admin' ${u.role==='admin'?'selected':''}>admin</option>
-                </select>
-              </td>
-              <td class='px-3 py-2'><input class='coachNameInput border rounded px-2 py-1 w-40' value='${u.coachName||''}' placeholder='教練姓名或 無' /></td>
-              <td class='px-3 py-2'>
-                ${u.role==='coach' ? `<label class='text-sm'><input type='checkbox' class='subChk' ${u.subscription?'checked':''}/> 有效</label>` : '—'}
-              </td>
-              <td class='px-3 py-2 text-right'><button class='saveBtn px-3 py-1 rounded bg-slate-900 text-white'>儲存</button></td>`;
-            tr.querySelector('.saveBtn')?.addEventListener('click', async ()=>{
-              const role = tr.querySelector('.roleSel').value;
-              const coachName = tr.querySelector('.coachNameInput').value.trim() || null;
-              const subEl = tr.querySelector('.subChk'); const subscription = subEl ? subEl.checked : false;
-              await updateDoc(doc(db,'users', dd.id), { role, coachName, subscription });
-              alert('已儲存');
-            });
-            ui.usersAdminTbody.appendChild(tr);
-          });
-        });
-      } else {
-        show(ui.adminSection,false);
-      }
-    });
-
-    // 共享工具
-    function fmtDate(tsOrDate){ const d = tsOrDate?.toDate?.() ? tsOrDate.toDate() : new Date(tsOrDate); const mm = String(d.getMonth()+1).padStart(2,'0'); const dd = String(d.getDate()).padStart(2,'0'); return `${d.getFullYear()}-${mm}-${dd}`; }
-  </script>
+  <footer class="max-w-5xl mx-auto px-4 py-10 text-center text-xs text-slate-500">Demo 站，Google / Apple 登入 + 角色制。請在 Firebase 啟用提供者、設定 Firestore 規則並發布。</footer>
 </body>
 </html>
