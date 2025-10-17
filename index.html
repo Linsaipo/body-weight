@@ -150,7 +150,19 @@
       show(el.adminSection,true);
       const qPending=query(collection(db,'coach_requests'), where('status','==','pending'), orderBy('createdAt','asc'));
       if (unsubReqs) unsubReqs();
-      unsubReqs = onSnapshot(qPending, snap=>{ el.pendingReqTbody.innerHTML=''; snap.forEach(d=>{ const r=d.data(); const tr=document.createElement('tr'); tr.className='border-b'; const when=r.createdAt?.toDate?.()? r.createdAt.toDate().toLocaleString():'—'; tr.innerHTML=`<td class='px-3 py-2'>${when}</td><td class='px-3 py-2'>${r.memberName}</td><td class='px-3 py-2'>${r.coachName}</td><td class='px-3 py-2'><button class='approve px-3 py-1 rounded bg-emerald-600 text-white mr-2'>核准</button><button class='reject px-3 py-1 rounded bg-slate-200'>退回</button></td>`; tr.querySelector('.approve')?.addEventListener('click', async ()=>{ await updateDoc(doc(db,'users', r.memberUid), {coachName:r.coachName, consent:true, consentAt:serverTimestamp()}); await updateDoc(doc(db,'coach_requests', d.id), {status:'approved', handledAt:serverTimestamp()}); }); tr.querySelector('.reject')?.addEventListener('click', async ()=>{ await updateDoc(doc(db,'coach_requests', d.id), {status:'rejected', handledAt:serverTimestamp()}); }); el.pendingReqTbody.appendChild(tr); }); });
+      unsubReqs = onSnapshot(qPending, snap=>{ el.pendingReqTbody.innerHTML=''; snap.forEach(d=>{ const r=d.data(); const tr=document.createElement('tr'); tr.className='border-b'; const when=r.createdAt?.toDate?.()? r.createdAt.toDate().toLocaleString():'—'; tr.innerHTML=`<td class='px-3 py-2'>${when}</td><td class='px-3 py-2'>${r.memberName}</td><td class='px-3 py-2'>${r.coachName}</td><td class='px-3 py-2'><button class='approve px-3 py-1 rounded bg-emerald-600 text-white mr-2'>核准</button><button class='reject px-3 py-1 rounded bg-slate-200'>退回</button></td>`; tr.querySelector('.approve')?.addEventListener('click', async ()=>{
+  const coachEmail = (r.coachEmail || '').toLowerCase();
+  await updateDoc(doc(db,'users', r.memberUid), {
+    coachName: r.coachName || '',
+    coachEmail: coachEmail,       // ★ 用 email 綁定
+    consent: true,
+    consentAt: serverTimestamp()
+  });
+  await updateDoc(doc(db,'coach_requests', d.id), {
+    status: 'approved',
+    handledAt: serverTimestamp()
+  });
+});
       const qAll=query(collection(db,'users'), orderBy('createdAt','asc')); onSnapshot(qAll, snap=>{ el.usersAdminTbody.innerHTML=''; snap.forEach(dd=>{ const u=dd.data(); const tr=document.createElement('tr'); tr.className='border-b'; tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||dd.id}</td><td class='px-3 py-2'>${u.email||''}</td><td class='px-3 py-2'><select class='roleSel border rounded px-2 py-1'><option value='member' ${u.role==='member'?'selected':''}>member</option><option value='coach' ${u.role==='coach'?'selected':''}>coach</option><option value='admin' ${u.role==='admin'?'selected':''}>admin</option></select></td><td class='px-3 py-2'><input class='coachNameInput border rounded px-2 py-1 w-40' value='${u.coachName||''}' placeholder='教練姓名或 無' /></td><td class='px-3 py-2'>${u.role==='coach'? `<label class='text-sm'><input type='checkbox' class='subChk' ${u.subscription?'checked':''}/> 有效</label>` : '—'}</td><td class='px-3 py-2 text-right'><button class='saveBtn px-3 py-1 rounded bg-slate-900 text-white'>儲存</button></td>`; tr.querySelector('.saveBtn')?.addEventListener('click', async ()=>{ const role=tr.querySelector('.roleSel').value; const coachName=tr.querySelector('.coachNameInput').value.trim()||null; const subEl=tr.querySelector('.subChk'); const subscription=subEl? subEl.checked:false; await updateDoc(doc(db,'users', dd.id), { role, coachName, subscription }); alert('已儲存'); }); el.usersAdminTbody.appendChild(tr); }); });
       // 快速建立使用者（測試期）
       el.createUserBtn?.addEventListener('click', async ()=>{
@@ -321,8 +333,8 @@
           <input id="coachNameInput" class="w-full px-3 py-2 rounded border" placeholder="例如：王小教／或填 無" />
         </div>
         <div>
-          <label class="block text-sm mb-1">教練 Email（選填）</label>
-          <input id="coachEmailInput" type="email" class="w-full px-3 py-2 rounded border" placeholder="例如：coach@example.com" />
+          <label class="block text-sm mb-1">教練 Email <span class="text-red-500">*</span></label>
+          <input id="coachEmailInput" type="email" class="w-full px-3 py-2 rounded border" placeholder="coach@example.com" />
         </div>
       </div>
       <label class="flex items-start gap-2 mt-4 text-sm">
@@ -339,13 +351,32 @@
 
   <!-- 教練頁：查看名單與數據概覽 -->
   <section id="coach-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
-    <div class="bg-white rounded-2xl shadow p-6">
-      <h2 class="text-lg font-bold mb-4">我的會員</h2>
-      <div class="overflow-x-auto">
-        <table class="min-w-full text-left text-sm">
-          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">會員</th><th class="px-3 py-2">最後紀錄日</th><th class="px-3 py-2">最新體重</th></tr></thead>
-          <tbody id="coachMembersTbody"></tbody>
-        </table>
+    <div class="grid gap-6 md:grid-cols-3">
+      <!-- 左：名單 -->
+      <div class="bg-white rounded-2xl shadow p-6 md:col-span-1">
+        <h2 class="text-lg font-bold mb-4">我的會員</h2>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">會員</th><th class="px-3 py-2">最後紀錄日</th><th class="px-3 py-2">最新體重</th><th class="px-3 py-2">查看</th></tr></thead>
+            <tbody id="coachMembersTbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- 右：詳情 -->
+      <div class="bg-white rounded-2xl shadow p-6 md:col-span-2">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-bold">會員詳情：<span id="coachMemberTitle" class="font-normal text-slate-600">未選擇</span></h2>
+          <div class="text-sm text-slate-600">近 7 天：<span id="coachTrend7">—</span>，近 30 天：<span id="coachTrend30">—</span></div>
+        </div>
+        <div class="h-[320px]">
+          <canvas id="coachMemberChart" class="w-full h-full"></canvas>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">日期</th><th class="px-3 py-2">體重</th><th class="px-3 py-2">體脂</th><th class="px-3 py-2">肌肉</th><th class="px-3 py-2">腰圍</th><th class="px-3 py-2">備註</th></tr></thead>
+            <tbody id="coachMemberTbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>
