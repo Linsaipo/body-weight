@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PharmaFit 藥健康 </title>
+  <title>PharmaFit 藥健康</title>
   <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Chart.js 與日期 adapter -->
@@ -31,7 +31,7 @@
     const db = getFirestore(app);
 
     // 指定誰是管理者（可看全部）
-    const ADMIN_EMAIL = 'linsaipo@gmail.com'; // ✅ 只宣告一次，避免 SyntaxError
+    const ADMIN_EMAIL = 'linsaipo@gmail.com'; // ✅ 只宣告一次
 
     /********************  工具  ********************/
     const $ = (id)=>document.getElementById(id);
@@ -60,7 +60,9 @@
       date: $('date'), weight: $('weight'), bodyFat: $('bodyFat'), muscle: $('muscle'), waist: $('waist'), note: $('note'), saveBtn: $('saveBtn'),
       tbody: $('tbody'), chartCanvas: $('weightChart'), emptyHint: $('emptyHint'), trend7: $('trend7'), trend30: $('trend30'),
       // coach list/detail
-      coachMembersTbody: $('coachMembersTbody'), coachMemberTitle: $('coachMemberTitle'), coachTrend7: $('coachTrend7'), coachTrend30: $('coachTrend30'), coachMemberChart: $('coachMemberChart'), coachMemberTbody: $('coachMemberTbody')
+      coachMembersTbody: $('coachMembersTbody'), coachMemberTitle: $('coachMemberTitle'), coachTrend7: $('coachTrend7'), coachTrend30: $('coachTrend30'), coachMemberChart: $('coachMemberChart'), coachMemberTbody: $('coachMemberTbody'),
+      // admin
+      adminSection: $('admin-section'), usersAdminTbody: $('usersAdminTbody')
     };
 
     /********************  綁定一般 UI 行為  ********************/
@@ -125,11 +127,9 @@
       const uref=doc(db,'users',user.uid); const snap=await getDoc(uref);
       const base={ email:(user.email||'').toLowerCase(), displayName:user.displayName||'', role: ((user.email||'').toLowerCase()===ADMIN_EMAIL?'admin':'member'), coachEmail:null, consent:false, createdAt:serverTimestamp(), subscription:false };
       if(!snap.exists()){ await setDoc(uref, base, {merge:true}); return base; }
-      // 若後來把 email 設成 admin，也自動升級角色
       const data = snap.data();
       if(((user.email||'').toLowerCase()===ADMIN_EMAIL) && data.role!=='admin'){
-        await updateDoc(uref,{role:'admin'});
-        data.role='admin';
+        await updateDoc(uref,{role:'admin'}); data.role='admin';
       }
       return data;
     }
@@ -160,19 +160,16 @@
       const qy=query(collection(db,'users',memberUid,'entries'), orderBy('date','asc'));
       unsubCoachDetail = onSnapshot(qy, snap=>{
         const rows=[]; snap.forEach(d=>rows.push({id:d.id, ...d.data()}));
-        // 表格
         el.coachMemberTbody.innerHTML='';
         for (const r of rows){
           const tr=document.createElement('tr'); tr.className='border-b';
           tr.innerHTML=`<td class='px-3 py-2'>${fmtDate(r.date)}</td><td class='px-3 py-2'>${safeNum(r.weight)}</td><td class='px-3 py-2'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2'>${safeNum(r.muscle)}</td><td class='px-3 py-2'>${safeNum(r.waist)}</td><td class='px-3 py-2'>${escapeHtml(r.note||'')}</td>`;
           el.coachMemberTbody.appendChild(tr);
         }
-        // 圖表
         const points = rows.map(r=>({x:new Date(r.date?.toDate?.()?r.date.toDate():r.date), y:Number(r.weight)}));
         const data={ datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
         const options={ responsive:true, maintainAspectRatio:false, scales:{ x:{type:'time', time:{unit:'day'}}, y:{title:{display:true,text:'kg'}} } };
         if (coachDetailChart){ coachDetailChart.data=data; coachDetailChart.update(); } else { coachDetailChart = new Chart(el.coachMemberChart.getContext('2d'), { type:'line', data, options }); }
-        // 7/30 天趨勢
         const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
         const delta=r=>{ if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); };
         const r7 = rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
@@ -210,6 +207,39 @@
       } else { show(el.coachSection,false); }
     }
 
+    /********************  Admin：全用戶管理（列表 + 角色切換）  ********************/
+    let unsubAllUsers=null;
+    function mountAdminView(profile){
+      if(profile.role!=='admin'){ show(el.adminSection,false); if (unsubAllUsers){unsubAllUsers(); unsubAllUsers=null;} return; }
+      show(el.adminSection,true);
+      if (unsubAllUsers) unsubAllUsers();
+      unsubAllUsers = onSnapshot(query(collection(db,'users'), orderBy('createdAt','asc')),(snap)=>{
+        el.usersAdminTbody.innerHTML='';
+        snap.forEach((d)=>{
+          const u=d.data();
+          const tr=document.createElement('tr'); tr.className='border-b';
+          tr.innerHTML = `
+            <td class='px-3 py-2'>${u.displayName||u.email||d.id}</td>
+            <td class='px-3 py-2'>${u.email||''}</td>
+            <td class='px-3 py-2'>
+              <select class='roleSel border rounded px-2 py-1'>
+                <option value='member' ${u.role==='member'?'selected':''}>member</option>
+                <option value='coach' ${u.role==='coach'?'selected':''}>coach</option>
+                <option value='admin' ${u.role==='admin'?'selected':''}>admin</option>
+              </select>
+            </td>
+            <td class='px-3 py-2 text-right'>
+              <button class='saveBtn px-3 py-1 rounded bg-slate-900 text-white'>儲存</button>
+            </td>`;
+          tr.querySelector('.saveBtn')?.addEventListener('click', async ()=>{
+            const role=tr.querySelector('.roleSel').value;
+            try{ await updateDoc(doc(db,'users', d.id), { role }); alert('已儲存'); }catch(e){ alert('更新失敗：'+(e?.message||e)); }
+          });
+          el.usersAdminTbody.appendChild(tr);
+        });
+      });
+    }
+
     /********************  邀請：helper（email -> uid）  ********************/
     async function findUidByEmail(emailLower){
       const qy = query(collection(db,'users'), where('email','==', emailLower), limit(1));
@@ -222,7 +252,6 @@
     function mountInvitesArea(profile, user){
       show(el.inviteSection, true);
 
-      // 發送邀請：會員→教練 或 教練→會員
       el.sendInviteBtn?.addEventListener('click', async ()=>{
         const toEmail = (el.inviteTargetEmail.value || '').trim().toLowerCase();
         if(!toEmail) return alert('請輸入對方 Email');
@@ -251,7 +280,6 @@
         }catch(e){ alert('送出失敗：'+(e?.message||e)); }
       });
 
-      // 收件匣：我當收件者 + 我是發件者（pending）
       const meEmail = (user.email||'').toLowerCase();
       if (unsubInvites) unsubInvites();
       const box = new Map(); // id -> invite
@@ -285,14 +313,10 @@
                             `<button class='accept px-2 py-1 mr-2 rounded bg-emerald-600 text-white'>同意</button>
                              <button class='reject px-2 py-1 rounded bg-slate-100 border'>拒絕</button>`}
                           </td>`;
-          // 取消（我發出的）
           tr.querySelector('.cancel')?.addEventListener('click', async ()=>{ try{ await updateDoc(doc(db,'invites', id), { status:'cancelled' }); }catch(e){ alert('取消失敗：'+(e?.message||e)); } });
-          // 同意（我收到的）
           tr.querySelector('.accept')?.addEventListener('click', async ()=>{
             try{
-              // 重要：先更新 users，再把 invite 設為 accepted
               if (inv.type === 'coach_to_member'){
-                // 會員端接受：本人更新自己的 users 檔
                 await updateDoc(doc(db,'users', user.uid), {
                   coachEmail: (inv.fromEmail||'').toLowerCase(),
                   consent: true,
@@ -300,7 +324,6 @@
                 });
                 await updateDoc(doc(db,'invites', id), { status:'accepted' });
               } else {
-                // 教練端接受：更新會員的 users 檔（規則會檢查 invite 仍為 pending）
                 const myEmailLower = (user.email||'').toLowerCase();
                 await updateDoc(doc(db,'users', inv.memberUid), {
                   coachEmail: myEmailLower,
@@ -313,7 +336,6 @@
               alert('已完成綁定');
             }catch(e){ alert('綁定失敗：'+(e?.message||e)); }
           });
-          // 拒絕（我收到的）
           tr.querySelector('.reject')?.addEventListener('click', async ()=>{ try{ await updateDoc(doc(db,'invites', id), { status:'rejected' }); }catch(e){ alert('拒絕失敗：'+(e?.message||e)); } });
           el.invitesTbody.appendChild(tr);
         }
@@ -333,15 +355,14 @@
         const profile = await ensureUserProfile(user);
         el.myRoleBadge.textContent = profile.role;
 
-        // 若尚未綁定，顯示會員表單
         const needsBind = (profile.role==='member') && (!profile.coachEmail);
         show(el.memberBind, needsBind); if(needsBind) wireMemberBind(user);
 
-        // 教練頁 + 邀請區
         mountCoachView(profile, user);
         mountInvitesArea(profile, user);
+        mountAdminView(profile);
       } else {
-        el.meName.textContent=''; show(el.appSection,false); show(el.roleRouter,false); show(el.memberBind,false); show(el.coachSection,false); show(el.inviteSection,false);
+        el.meName.textContent=''; show(el.appSection,false); show(el.roleRouter,false); show(el.memberBind,false); show(el.coachSection,false); show(el.inviteSection,false); show(el.adminSection,false);
       }
     });
 
@@ -352,7 +373,7 @@
 <body class="bg-slate-50 min-h-dvh">
   <header class="bg-white border-b sticky top-0 z-10">
     <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-lg sm:text-xl font-bold">體重會員站（Google / Apple 登入 + 雙向邀請綁定）</h1>
+      <h1 class="text-lg sm:text-xl font-bold">PharmaFit 藥健康（Google / Apple 登入 + 雙向邀請綁定）</h1>
       <div class="text-sm flex items-center gap-2">
         <a href="#role-router" id="openRoleBtn" class="px-3 py-1.5 rounded-lg bg-slate-100 border hover:bg-slate-200">角色/管理</a>
         <span id="meName" class="text-slate-600"></span>
@@ -467,6 +488,7 @@
           <a href="#member-bind" class="underline">會員綁定表單</a>
           <a href="#invite-section" class="underline">邀請/收件匣</a>
           <a href="#coach-section" class="underline">教練頁</a>
+          <a href="#admin-section" class="underline">管理員</a>
         </div>
       </div>
     </div>
@@ -544,6 +566,20 @@
           </table>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- Admin：所有使用者列表 -->
+  <section id="admin-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-bold mb-4">使用者總覽（Admin）</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm">
+          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">名稱</th><th class="px-3 py-2">Email</th><th class="px-3 py-2">角色</th><th class="px-3 py-2 text-right">操作</th></tr></thead>
+          <tbody id="usersAdminTbody"></tbody>
+        </table>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">提示：若 Admin 看不到列表，請確認 Firestore 規則允許 admin 讀寫 users 集合。</p>
     </div>
   </section>
 
