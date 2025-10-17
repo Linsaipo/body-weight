@@ -166,63 +166,62 @@
     }
 
     let unsubUsers=null, unsubReqs=null;
+// 教練詳情（全域）
+let unsubCoachDetail=null, coachDetailChart=null;
+function openCoachMemberDetail(memberUid, title){
+  el.coachMemberTitle.textContent = title;
+  if (unsubCoachDetail){ unsubCoachDetail(); unsubCoachDetail=null; }
+  const qy=query(collection(db,'users',memberUid,'entries'), orderBy('date','asc'));
+  unsubCoachDetail = onSnapshot(qy, snap=>{
+    const rows=[]; snap.forEach(d=>rows.push({id:d.id, ...d.data()}));
+    // 表格
+    el.coachMemberTbody.innerHTML='';
+    for (const r of rows){
+      const tr=document.createElement('tr'); tr.className='border-b';
+      tr.innerHTML=`<td class='px-3 py-2'>${fmtDate(r.date)}</td><td class='px-3 py-2'>${safeNum(r.weight)}</td><td class='px-3 py-2'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2'>${safeNum(r.muscle)}</td><td class='px-3 py-2'>${safeNum(r.waist)}</td><td class='px-3 py-2'>${escapeHtml(r.note||'')}</td>`;
+      el.coachMemberTbody.appendChild(tr);
+    }
+    // 圖表
+    const points = rows.map(r=>({x:new Date(r.date?.toDate?.()?r.date.toDate():r.date), y:Number(r.weight)}));
+    const data={ datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
+    const options={ responsive:true, maintainAspectRatio:false, scales:{ x:{type:'time', time:{unit:'day'}}, y:{title:{display:true,text:'kg'}} } };
+    if (coachDetailChart){ coachDetailChart.data=data; coachDetailChart.update(); }
+    else { coachDetailChart = new Chart(el.coachMemberChart.getContext('2d'), { type:'line', data, options }); }
+    // 7/30天趨勢
+    const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
+    const delta=r=>{ if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); };
+    const r7 = rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
+    const r30= rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30));
+    const d7=delta(r7), d30=delta(r30);
+    el.coachTrend7.textContent = d7===null?'—':(d7>0?`+${d7} kg`:`${d7} kg`);
+    el.coachTrend30.textContent = d30===null?'—':(d30>0?`+${d30} kg`:`${d30} kg`);
+  });
+}
     function mountCoachView(profile, user){
-      if(profile.role==='coach' || profile.role==='admin'){
-        show(el.coachSection,true);
-        const myEmail = (user.email||'').toLowerCase();
-        const qMembers=query(collection(db,'users'), where('coachEmail','==', myEmail));
-        if (unsubUsers) unsubUsers();
-        unsubUsers = onSnapshot(qMembers, async snap=>{
-          el.coachMembersTbody.innerHTML='';
-          for(const d of snap.docs){
-            const u=d.data();
-            const lastQ=query(collection(db,'users',d.id,'entries'), orderBy('date','desc'), limit(1));
-            const last=await getDocs(lastQ);
-            let latestDate='—', latestWeight='—';
-            last.forEach(ed=>{ const e=ed.data(); latestDate=fmtDate(e.date); latestWeight=e.weight;});
-            const tr=document.createElement('tr');
-            tr.className='border-b';
-            tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td><td class='px-3 py-2'><button class='view px-2 py-1 rounded bg-slate-100 border'>查看</button></td>`;
-            tr.querySelector('.view')?.addEventListener('click', ()=> openCoachMemberDetail(d.id, u.displayName||u.email||d.id));
-            el.coachMembersTbody.appendChild(tr);
-          }
-        });
-      } else { show(el.coachSection,false); }
-    }
+  if(profile.role==='coach' || profile.role==='admin'){
+    show(el.coachSection,true);
+    const myEmail = (user.email||'').toLowerCase();
+    const qMembers=query(collection(db,'users'), where('coachEmail','==', myEmail));
+    if (unsubUsers) unsubUsers();
+    unsubUsers = onSnapshot(qMembers, async snap=>{
+      el.coachMembersTbody.innerHTML='';
+      for(const d of snap.docs){
+        const u=d.data();
+        const lastQ=query(collection(db,'users',d.id,'entries'), orderBy('date','desc'), limit(1));
+        const last=await getDocs(lastQ);
+        let latestDate='—', latestWeight='—';
+        last.forEach(ed=>{ const e=ed.data(); latestDate=fmtDate(e.date); latestWeight=e.weight;});
+        const tr=document.createElement('tr');
+        tr.className='border-b';
+        tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td><td class='px-3 py-2'><button class='view px-2 py-1 rounded bg-slate-100 border'>查看</button></td>`;
+        tr.querySelector('.view')?.addEventListener('click', ()=> openCoachMemberDetail(d.id, u.displayName||u.email||d.id));
+        el.coachMembersTbody.appendChild(tr);
+      }
+    });
+  } else { show(el.coachSection,false); }
+}
 
-    // 教練詳情視圖（模組層級）
-    let unsubCoachDetail=null, coachDetailChart=null;
-    function openCoachMemberDetail(memberUid, title){
-      el.coachMemberTitle.textContent = title;
-      if (unsubCoachDetail){ unsubCoachDetail(); unsubCoachDetail=null; }
-      const qy=query(collection(db,'users',memberUid,'entries'), orderBy('date','asc'));
-      unsubCoachDetail = onSnapshot(qy, snap=>{
-        const rows=[]; snap.forEach(d=>rows.push({id:d.id, ...d.data()}));
-        // 表格
-        el.coachMemberTbody.innerHTML='';
-        for (const r of rows){
-          const tr=document.createElement('tr'); tr.className='border-b';
-          tr.innerHTML=`<td class='px-3 py-2'>${fmtDate(r.date)}</td><td class='px-3 py-2'>${safeNum(r.weight)}</td><td class='px-3 py-2'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2'>${safeNum(r.muscle)}</td><td class='px-3 py-2'>${safeNum(r.waist)}</td><td class='px-3 py-2'>${escapeHtml(r.note||'')}</td>`;
-          el.coachMemberTbody.appendChild(tr);
-        }
-        // 圖表
-        const points = rows.map(r=>({x:new Date(r.date?.toDate?.()?r.date.toDate():r.date), y:Number(r.weight)}));
-        const data={ datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
-        const options={ responsive:true, maintainAspectRatio:false, scales:{ x:{type:'time', time:{unit:'day'}}, y:{title:{display:true,text:'kg'}} } };
-        if (coachDetailChart){ coachDetailChart.data=data; coachDetailChart.update(); }
-        else { coachDetailChart = new Chart(el.coachMemberChart.getContext('2d'), { type:'line', data, options }); }
-        // 7/30天
-        const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
-        const delta=r=>{ if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); };
-        const r7 = rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
-        const r30= rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30));
-        const d7=delta(r7), d30=delta(r30);
-        el.coachTrend7.textContent = d7===null?'—':(d7>0?`+${d7} kg`:`${d7} kg`);
-        el.coachTrend30.textContent = d30===null?'—':(d30>0?`+${d30} kg`:`${d30} kg`);
-      });
-    }
-
-    function mountAdminView(profile){
+function mountAdminView(profile){
       if(profile.role!=='admin'){ show(el.adminSection,false); return; }
       show(el.adminSection,true);
       const qPending=query(collection(db,'coach_requests'), where('status','==','pending'), orderBy('createdAt','asc'));
