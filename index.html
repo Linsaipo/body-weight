@@ -140,7 +140,10 @@
           show(el.memberBind,false); alert('已設定為無教練。'); return;
         }
         await addDoc(collection(db,'coach_requests'), { memberUid:user.uid, memberName:user.displayName||user.email||user.uid, memberEmail:user.email||'', coachName:name, coachEmail:email||'', consent:true, status:'pending', createdAt:serverTimestamp() });
-        if(email){ const subject=encodeURIComponent('【體重網站】會員綁定請求'); const body=encodeURIComponent(`教練您好：\n\n我（${user.displayName||user.email||user.uid}）想綁定您為我的教練，請協助通知管理者審核。\n網站：linsaipo.github.io/body-weight`); window.location.href=`mailto:${email}?subject=${subject}&body=${body}`; }
+        if(email){ const subject=encodeURIComponent('【體重網站】會員綁定請求'); const body=encodeURIComponent(`教練您好：
+
+我（${user.displayName||user.email||user.uid}）想綁定您為我的教練，請協助通知管理者審核。
+網站：linsaipo.github.io/body-weight`); window.location.href=`mailto:${email}?subject=${subject}&body=${body}`; }
         alert('已送出綁定請求，待管理者審核。'); show(el.memberBind,false);
       });
       el.skipBindBtn?.addEventListener('click', ()=> show(el.memberBind,false));
@@ -349,4 +352,135 @@
   </section>
 
   <!-- 角色切換的主容器 -->
-  <section id="role-router" class="max-w
+  <section id="role-router" class="max-w-5xl mx-auto px-4 py-6 hidden">
+    <div class="grid gap-4 sm:grid-cols-3">
+      <div class="rounded-xl border bg-white p-4">
+        <h3 class="font-bold mb-2">我的角色</h3>
+        <p class="text-sm text-slate-600">管理者（linsaipo@gmail.com）可檢視與設定所有資料。</p>
+        <div class="mt-3 text-sm">目前：<span id="myRoleBadge" class="inline-block rounded-lg bg-slate-100 px-2 py-1">…</span></div>
+      </div>
+      <div class="rounded-xl border bg-white p-4 sm:col-span-2">
+        <h3 class="font-bold mb-2">快速導覽</h3>
+        <div class="flex flex-wrap gap-2 text-sm">
+          <a href="#member-bind" class="underline">會員綁定表單</a>
+          <a href="#coach-section" class="underline">教練頁</a>
+          <a href="#admin-section" class="underline">管理者頁</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 會員：教練綁定 & 同意書 -->
+  <section id="member-bind" class="max-w-2xl mx-auto px-4 py-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-bold mb-3">選擇教練與個資同意</h2>
+      <p class="text-sm text-slate-600 mb-4">請輸入教練姓名（沒有教練請輸入「無」）。若提供 Email，系統會打開郵件通知草稿。</p>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm mb-1">教練姓名 <span class="text-red-500">*</span></label>
+          <input id="coachNameInput" class="w-full px-3 py-2 rounded border" placeholder="例如：王小教／或填 無" />
+        </div>
+        <div>
+          <label class="block text-sm mb-1">教練 Email <span class="text-red-500">*</span></label>
+          <input id="coachEmailInput" type="email" class="w-full px-3 py-2 rounded border" placeholder="coach@example.com" />
+        </div>
+      </div>
+      <label class="flex items-start gap-2 mt-4 text-sm">
+        <input id="consentChk" type="checkbox" class="mt-1" />
+        <span>我同意本網站蒐集與處理本人之身體數據（體重、體脂、腰圍等）以供教練追蹤與指導之用，並同意提供予指定教練與管理者查閱。</span>
+      </label>
+      <div class="flex gap-3 mt-4">
+        <button id="bindCoachBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white">送出並綁定</button>
+        <button id="skipBindBtn" class="px-4 py-2 rounded-lg bg-slate-100">暫不綁定</button>
+      </div>
+      <p class="text-xs text-slate-500 mt-3">測試期間：綁定請求會寫入 Firestore 的 <code>coach_requests</code>，管理者審核後生效。若填了 Email，會開啟郵件草稿讓你寄給教練。</p>
+    </div>
+  </section>
+
+  <!-- 教練頁：查看名單與數據概覽 -->
+  <section id="coach-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
+    <div class="grid gap-6 md:grid-cols-3">
+      <!-- 左：名單 -->
+      <div class="bg-white rounded-2xl shadow p-6 md:col-span-1">
+        <h2 class="text-lg font-bold mb-4">我的會員</h2>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">會員</th><th class="px-3 py-2">最後紀錄日</th><th class="px-3 py-2">最新體重</th><th class="px-3 py-2">查看</th></tr></thead>
+            <tbody id="coachMembersTbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- 右：詳情 -->
+      <div class="bg-white rounded-2xl shadow p-6 md:col-span-2">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-bold">會員詳情：<span id="coachMemberTitle" class="font-normal text-slate-600">未選擇</span></h2>
+          <div class="text-sm text-slate-600">近 7 天：<span id="coachTrend7">—</span>，近 30 天：<span id="coachTrend30">—</span></div>
+        </div>
+        <div class="h-[320px]">
+          <canvas id="coachMemberChart" class="w-full h-full"></canvas>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">日期</th><th class="px-3 py-2">體重</th><th class="px-3 py-2">體脂</th><th class="px-3 py-2">肌肉</th><th class="px-3 py-2">腰圍</th><th class="px-3 py-2">備註</th></tr></thead>
+            <tbody id="coachMemberTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 管理員頁：全局檢視與審核 -->
+  <section id="admin-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-6 mb-6">
+      <h2 class="text-lg font-bold mb-4">待審核：會員教練綁定請求</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm">
+          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">時間</th><th class="px-3 py-2">會員</th><th class="px-3 py-2">教練姓名</th><th class="px-3 py-2">操作</th></tr></thead>
+          <tbody id="pendingReqTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 管理者：手動建立使用者（測試期） -->
+    <div class="bg-white rounded-2xl shadow p-6 mb-6">
+      <h2 class="text-lg font-bold mb-4">快速建立使用者（測試期）</h2>
+      <div class="grid md:grid-cols-4 gap-3 items-end">
+        <div>
+          <label class="block text-sm mb-1">UID（從 Authentication 複製）</label>
+          <input id="newUserUid" class="w-full px-3 py-2 rounded border" placeholder="例：L1uz617cmIVZd4x1ghDwTLjht..." />
+        </div>
+        <div>
+          <label class="block text-sm mb-1">Email</label>
+          <input id="newUserEmail" class="w-full px-3 py-2 rounded border" placeholder="user@example.com" />
+        </div>
+        <div>
+          <label class="block text-sm mb-1">名稱（顯示用）</label>
+          <input id="newUserName" class="w-full px-3 py-2 rounded border" placeholder="暱稱或姓名" />
+        </div>
+        <div>
+          <label class="block text-sm mb-1">角色</label>
+          <select id="newUserRole" class="w-full px-3 py-2 rounded border">
+            <option value="member">member</option>
+            <option value="coach">coach</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+      </div>
+      <button id="createUserBtn" class="mt-3 px-4 py-2 rounded bg-slate-900 text-white">建立</button>
+      <p class="text-xs text-slate-500 mt-2">此動作僅建立 Firestore 的 <code>users/{UID}</code> 文件，不會新增 Firebase Authentication 帳號。</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-bold mb-4">使用者總覽</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm">
+          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">名稱</th><th class="px-3 py-2">Email</th><th class="px-3 py-2">角色</th><th class="px-3 py-2">教練姓名</th><th class="px-3 py-2">訂閱（教練）</th><th class="px-3 py-2">操作</th></tr></thead>
+          <tbody id="usersAdminTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer class="max-w-5xl mx-auto px-4 py-10 text-center text-xs text-slate-500">Demo 站，Google / Apple 登入 + 角色制。請在 Firebase 啟用提供者、設定 Firestore 規則並發布。</footer>
+</body>
+</html>
