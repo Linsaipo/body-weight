@@ -43,6 +43,7 @@
       // sections
       authSection: $('auth-section'), appSection: $('app-section'), roleRouter: $('role-router'),
       myRoleBadge: $('myRoleBadge'), memberBind: $('member-bind'), coachSection: $('coach-section'), adminSection: $('admin-section'),
+      coachReqTbody: $('coachReqTbody'),
       // bind form
       coachNameInput: $('coachNameInput'), coachEmailInput: $('coachEmailInput'), consentChk: $('consentChk'), bindCoachBtn: $('bindCoachBtn'), skipBindBtn: $('skipBindBtn'),
       // entries
@@ -59,6 +60,8 @@
     // Providers
     const googleProvider = new GoogleAuthProvider();
     const appleProvider = new OAuthProvider('apple.com'); appleProvider.addScope('email'); appleProvider.addScope('name');
+
+    let unsubCoachReqs=null;
 
     // Helpers
     const show = (node, on=true)=> node && node.classList[on?'remove':'add']('hidden');
@@ -183,29 +186,41 @@
 
     function mountCoachView(profile, user){
       if(profile.role==='coach' || profile.role==='admin'){
-        show(el.coachSection,true);
-        const myEmail = (user.email||'').toLowerCase();
+        show(el.coachSection,true); const myEmail = (user.email||'').toLowerCase();
         const qMembers=query(collection(db,'users'), where('coachEmail','==', myEmail));
         if (unsubUsers) unsubUsers();
-        unsubUsers = onSnapshot(qMembers, async snap=>{
-          el.coachMembersTbody.innerHTML='';
-          for(const d of snap.docs){
-            const u=d.data();
-            const lastQ=query(collection(db,'users',d.id,'entries'), orderBy('date','desc'), limit(1));
-            const last=await getDocs(lastQ);
-            let latestDate='—', latestWeight='—';
-            last.forEach(ed=>{ const e=ed.data(); latestDate=fmtDate(e.date); latestWeight=e.weight;});
-            const tr=document.createElement('tr');
-            tr.className='border-b';
-            tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td><td class='px-3 py-2'><button class='view px-2 py-1 rounded bg-slate-100 border'>查看</button></td>`;
-            tr.querySelector('.view')?.addEventListener('click', ()=> openCoachMemberDetail(d.id, u.displayName||u.email||d.id));
-            el.coachMembersTbody.appendChild(tr);
-          }
+        unsubUsers = onSnapshot(qMembers, async snap=>{ el.coachMembersTbody.innerHTML=''; for(const d of snap.docs){ const u=d.data(); const lastQ=query(collection(db,'users',d.id,'entries'), orderBy('date','desc'), limit(1)); const last=await getDocs(lastQ); let latestDate='—', latestWeight='—'; last.forEach(ed=>{ const e=ed.data(); latestDate=fmtDate(e.date); latestWeight=e.weight;}); const tr=document.createElement('tr'); tr.className='border-b'; tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td><td class='px-3 py-2'><button class='view px-2 py-1 rounded bg-slate-100 border mr-2'>查看</button><button class='unbind px-2 py-1 rounded bg-rose-50 text-rose-700 border'>解除綁定</button></td>`; tr.querySelector('.view')?.addEventListener('click', ()=> openCoachMemberDetail(d.id, u.displayName||u.email||d.id)); tr.querySelector('.unbind')?.addEventListener('click', async ()=>{ if(!confirm('確定要解除與此會員的綁定？')) return; await updateDoc(doc(db,'users', d.id), { coachName: null, coachEmail: null }); }); el.coachMembersTbody.appendChild(tr);} });
+        // 教練收件匣（綁定請求）
+        if (unsubCoachReqs) unsubCoachReqs();
+        const qReq=query(collection(db,'coach_requests'), where('status','==','pending'), where('coachEmail','==', myEmail));
+        unsubCoachReqs = onSnapshot(qReq, snap=>{
+          el.coachReqTbody.innerHTML='';
+          snap.forEach(d=>{
+            const r=d.data();
+            const when=r.createdAt?.toDate?.()? r.createdAt.toDate().toLocaleString():'—';
+            const tr=document.createElement('tr'); tr.className='border-b';
+            tr.innerHTML=`<td class='px-3 py-2'>${when}</td><td class='px-3 py-2'>${r.memberName}</td><td class='px-3 py-2'>${r.coachName||''}</td><td class='px-3 py-2'>
+              <button class='approve px-3 py-1 rounded bg-emerald-600 text-white mr-2'>核准</button>
+              <button class='reject px-3 py-1 rounded bg-slate-200'>退回</button>
+            </td>`;
+            tr.querySelector('.approve')?.addEventListener('click', async ()=>{
+              await updateDoc(doc(db,'users', r.memberUid), {
+                coachName: r.coachName||'',
+                coachEmail: myEmail,
+                consent: true,
+                consentAt: serverTimestamp()
+              });
+              await updateDoc(doc(db,'coach_requests', d.id), { status:'approved_by_coach', handledAt: serverTimestamp() });
+            });
+            tr.querySelector('.reject')?.addEventListener('click', async ()=>{
+              await updateDoc(doc(db,'coach_requests', d.id), { status:'rejected_by_coach', handledAt: serverTimestamp() });
+            });
+            el.coachReqTbody.appendChild(tr);
+          });
         });
       } else { show(el.coachSection,false); }
     }
-
-    function mountAdminView(profile){
+    function mountAdminView(profile){(profile){
       if(profile.role!=='admin'){ show(el.adminSection,false); return; }
       show(el.adminSection,true);
       // 待審核清單
@@ -399,6 +414,17 @@
 
   <!-- 教練頁：查看名單與數據概覽 -->
   <section id="coach-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
+    <!-- 教練收件匣：會員綁定請求 -->
+    <div class="bg-white rounded-2xl shadow p-6 mb-6">
+      <h2 class="text-lg font-bold mb-4">待處理的綁定請求</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm">
+          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">時間</th><th class="px-3 py-2">會員</th><th class="px-3 py-2">指定教練</th><th class="px-3 py-2">操作</th></tr></thead>
+          <tbody id="coachReqTbody"></tbody>
+        </table>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">此清單會顯示寄到你 Email 的綁定請求，你可以在此直接核准或退回。</p>
+    </div>
     <div class="grid gap-6 md:grid-cols-3">
       <!-- 左：名單 -->
       <div class="bg-white rounded-2xl shadow p-6 md:col-span-1">
