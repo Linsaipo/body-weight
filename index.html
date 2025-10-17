@@ -415,4 +415,91 @@
         <div class="mt-3 text-sm">目前：<span id="myRoleBadge" class="inline-block rounded-lg bg-slate-100 px-2 py-1">…</span></div>
       </div>
       <div class="rounded-xl border bg-white p-4 sm:col-span-2">
-        <h3 class="font-bold mb-2">快速導覽</h
+        <h3 class="font-bold mb-2">快速導覽</h3>
+        <div class="flex flex-wrap gap-2 text-sm">
+          <a href="#member-bind" class="underline">會員綁定表單</a>
+          <a href="#invite-section" class="underline">邀請/收件匣</a>
+          <a href="#coach-section" class="underline">教練頁</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 會員：只留教練 Email + 同意 + 解除按鈕 -->
+  <section id="member-bind" class="max-w-2xl mx-auto px-4 py-6 hidden">
+    <div class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-bold mb-3">綁定教練</h2>
+      <p class="text-sm text-slate-600 mb-4">輸入教練 Email，送出邀請後等待對方同意即可綁定。</p>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div class="sm:col-span-2">
+          <label class="block text-sm mb-1">教練 Email <span class="text-red-500">*</span></label>
+          <input id="coachEmailInput" type="email" class="w-full px-3 py-2 rounded border" placeholder="coach@example.com" />
+        </div>
+      </div>
+      <label class="flex items-start gap-2 mt-4 text-sm">
+        <input id="consentChk" type="checkbox" class="mt-1" />
+        <span>我同意本網站蒐集與處理本人之身體數據（體重、體脂、腰圍等）以供教練追蹤與指導之用。</span>
+      </label>
+      <div class="flex gap-3 mt-4">
+        <button id="bindCoachBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white">送出邀請</button>
+        <button id="memberUnbindBtn" class="px-4 py-2 rounded-lg bg-red-50 text-red-700 border">解除綁定</button>
+        <button id="skipBindBtn" class="px-4 py-2 rounded-lg bg-slate-100">稍後</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 邀請區：雙向、站內同意/拒絕/取消 -->
+  <section id="invite-section" class="max-w-5xl mx-auto px-4 py-6 hidden">
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="bg-white rounded-2xl shadow p-6">
+        <h3 class="text-lg font-bold mb-3">發送邀請</h3>
+        <p class="text-sm text-slate-600 mb-3">會員 → 輸入教練 Email；教練 → 輸入會員 Email。</p>
+        <div class="space-y-3">
+          <input id="inviteTargetEmail" type="email" class="w-full px-3 py-2 rounded border" placeholder="對方 Email" />
+          <button id="sendInviteBtn" class="px-4 py-2 rounded bg-slate-900 text-white">送出邀請</button>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-6">
+        <h3 class="text-lg font-bold mb-3">邀請收件匣</h3>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">來源 / 對象</th><th class="px-3 py-2">類型</th><th class="px-3 py-2">狀態</th><th class="px-3 py-2">操作</th></tr></thead>
+            <tbody id="invitesTbody"></tbody>
+          </table>
+        </div>
+        <p id="invitesEmpty" class="text-sm text-slate-500 mt-3">尚無邀請。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 教練頁：查看名單與數據概覽 -->
+  <section id="coach-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
+    <div class="grid gap-6 md:grid-cols-3">
+      <div class="bg-white rounded-2xl shadow p-6 md:col-span-1">
+        <h2 class="text-lg font-bold mb-4">我的會員</h2>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">會員</th><th class="px-3 py-2">最後紀錄日</th><th class="px-3 py-2">最新體重</th><th class="px-3 py-2">操作</th></tr></thead>
+            <tbody id="coachMembersTbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-6 md:col-span-2">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-bold">會員詳情：<span id="coachMemberTitle" class="font-normal text-slate-600">未選擇</span></h2>
+          <div class="text-sm text-slate-600">近 7 天：<span id="coachTrend7">—</span>，近 30 天：<span id="coachTrend30">—</span></div>
+        </div>
+        <div class="h-[320px]"><canvas id="coachMemberChart" class="w-full h-full"></canvas></div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">日期</th><th class="px-3 py-2">體重</th><th class="px-3 py-2">體脂</th><th class="px-3 py-2">肌肉</th><th class="px-3 py-2">腰圍</th><th class="px-3 py-2">備註</th></tr></thead>
+            <tbody id="coachMemberTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="max-w-5xl mx-auto px-4 py-10 text-center text-xs text-slate-500">Demo 站，雙向邀請綁定。<br/>請記得把 Firestore 規則換成文件註解中的版本。</footer>
+</body>
+</html>
