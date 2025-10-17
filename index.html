@@ -12,11 +12,11 @@
 
   <!-- Firebase SDK（v12.4.0）主要功能：Auth + Firestore -->
   <script type="module">
+    // === Firebase & App ===
     import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signOut, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, OAuthProvider } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
     import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, deleteDoc, setDoc, getDoc, getDocs, where, updateDoc, limit } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
 
-    // === 1) 你的 Firebase 設定（已帶入你專案的值） ===
     const firebaseConfig = {
       apiKey: "AIzaSyD81Aw3raqUcG_EUl8_W_WG3bxcunfA9rQ",
       authDomain: "body-weight-39dfd.firebaseapp.com",
@@ -26,329 +26,163 @@
       appId: "1:745642339903:web:d570fce93146c8861c528a"
     };
 
-    // 初始化（避免重複 init）
     let app; try { app = getApp(); } catch { app = initializeApp(firebaseConfig); }
     const auth = getAuth(app);
     const db = getFirestore(app);
 
-    // === 2) UI 元素 ===
-    const el = {
-      // header
-      openRoleBtn: document.getElementById('openRoleBtn'),
-      meName: document.getElementById('meName'),
-      logoutBtn: document.getElementById('logoutBtn'),
-      // auth buttons
-      btnGoogle: document.getElementById('btnGoogle'),
-      btnApple: document.getElementById('btnApple'),
-      // sections
-      authSection: document.getElementById('auth-section'),
-      appSection: document.getElementById('app-section'),
-      roleRouter: document.getElementById('role-router'),
-      myRoleBadge: document.getElementById('myRoleBadge'),
-      memberBind: document.getElementById('member-bind'),
-      coachSection: document.getElementById('coach-section'),
-      adminSection: document.getElementById('admin-section'),
-      // member bind inputs
-      coachNameInput: document.getElementById('coachNameInput'),
-      coachEmailInput: document.getElementById('coachEmailInput'),
-      consentChk: document.getElementById('consentChk'),
-      bindCoachBtn: document.getElementById('bindCoachBtn'),
-      skipBindBtn: document.getElementById('skipBindBtn'),
-      // member entries
-      date: document.getElementById('date'),
-      weight: document.getElementById('weight'),
-      bodyFat: document.getElementById('bodyFat'),
-      muscle: document.getElementById('muscle'),
-      waist: document.getElementById('waist'),
-      note: document.getElementById('note'),
-      saveBtn: document.getElementById('saveBtn'),
-      tbody: document.getElementById('tbody'),
-      chartCanvas: document.getElementById('weightChart'),
-      emptyHint: document.getElementById('emptyHint'),
-      trend7: document.getElementById('trend7'),
-      trend30: document.getElementById('trend30'),
-      // coach/admin tables
-      coachMembersTbody: document.getElementById('coachMembersTbody'),
-      pendingReqTbody: document.getElementById('pendingReqTbody'),
-      usersAdminTbody: document.getElementById('usersAdminTbody'),
-    };
-
     const ADMIN_EMAIL = 'linsaipo@gmail.com';
 
-    // === 3) 登入提供者 ===
+    // 全域 UI 快捷
+    const $ = (id)=>document.getElementById(id);
+
+    const el = {
+      // header
+      openRoleBtn: $('openRoleBtn'), meName: $('meName'), logoutBtn: $('logoutBtn'),
+      // auth
+      btnGoogle: $('btnGoogle'), btnApple: $('btnApple'),
+      // sections
+      authSection: $('auth-section'), appSection: $('app-section'), roleRouter: $('role-router'),
+      myRoleBadge: $('myRoleBadge'), memberBind: $('member-bind'), coachSection: $('coach-section'), adminSection: $('admin-section'),
+      // bind form
+      coachNameInput: $('coachNameInput'), coachEmailInput: $('coachEmailInput'), consentChk: $('consentChk'), bindCoachBtn: $('bindCoachBtn'), skipBindBtn: $('skipBindBtn'),
+      // entries
+      date: $('date'), weight: $('weight'), bodyFat: $('bodyFat'), muscle: $('muscle'), waist: $('waist'), note: $('note'), saveBtn: $('saveBtn'),
+      tbody: $('tbody'), chartCanvas: $('weightChart'), emptyHint: $('emptyHint'), trend7: $('trend7'), trend30: $('trend30'),
+      // coach/admin tables
+      coachMembersTbody: $('coachMembersTbody'), pendingReqTbody: $('pendingReqTbody'), usersAdminTbody: $('usersAdminTbody'),
+      // admin quick create
+      createUserBtn: $('createUserBtn'), newUserUid: $('newUserUid'), newUserEmail: $('newUserEmail'), newUserName: $('newUserName'), newUserRole: $('newUserRole')
+    };
+
+    // Providers
     const googleProvider = new GoogleAuthProvider();
-    const appleProvider = new OAuthProvider('apple.com');
-    appleProvider.addScope('email');
-    appleProvider.addScope('name');
+    const appleProvider = new OAuthProvider('apple.com'); appleProvider.addScope('email'); appleProvider.addScope('name');
 
+    // Helpers
+    const show = (node, on=true)=> node && node.classList[on?'remove':'add']('hidden');
+    const fmtDate = (tsOrDate)=>{ const d = tsOrDate?.toDate?.()? tsOrDate.toDate(): new Date(tsOrDate); if (Number.isNaN(d.getTime())) return ''; const mm=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${d.getFullYear()}-${mm}-${dd}`; };
+    const safeNum = (v)=> (v===null||v===undefined||v==='')? '': Number(v);
+    const escapeHtml = (s)=> (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+
+    // 綁定 UI（DOMContentLoaded 後呼叫）
     function bindUI(){
-      const btnGoogle = document.getElementById('btnGoogle');
-      const btnApple = document.getElementById('btnApple');
-      const logoutBtn = document.getElementById('logoutBtn');
-      const openRoleBtn = document.getElementById('openRoleBtn');
-      if (btnGoogle){ btnGoogle.addEventListener('click', async ()=>{
-        try { await signInWithPopup(auth, googleProvider); }
-        catch { await signInWithRedirect(auth, googleProvider); }
-      }); }
-      if (btnApple){ btnApple.addEventListener('click', async ()=>{
-        try { await signInWithPopup(auth, appleProvider); }
-        catch { await signInWithRedirect(auth, appleProvider); }
-      }); }
-      if (logoutBtn){ logoutBtn.addEventListener('click', async ()=>{ await signOut(auth); }); }
-      if (openRoleBtn){ openRoleBtn.addEventListener('click', (e)=>{ e.preventDefault(); el.roleRouter?.classList.remove('hidden'); el.roleRouter?.scrollIntoView({behavior:'smooth'}); }); }
+      el.btnGoogle?.addEventListener('click', async ()=>{ try { await signInWithPopup(auth, googleProvider); } catch { await signInWithRedirect(auth, googleProvider); } });
+      el.btnApple?.addEventListener('click', async ()=>{ try { await signInWithPopup(auth, appleProvider); } catch { await signInWithRedirect(auth, appleProvider); } });
+      el.logoutBtn?.addEventListener('click', async ()=>{ await signOut(auth); });
+      el.openRoleBtn?.addEventListener('click', (e)=>{ e.preventDefault(); show(el.roleRouter,true); el.roleRouter?.scrollIntoView({behavior:'smooth'}); });
+      // 預設日期
+      const t=new Date(); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date && (el.date.value=`${yyyy}-${mm}-${dd}`);
     }
-    getRedirectResult(auth).catch(()=>{}); el.roleRouter?.classList.remove('hidden'); el.roleRouter?.scrollIntoView({behavior:'smooth'});
-    });
 
-    // === 4) 共用工具 ===
-    const show = (node, on=true) => node?.classList[on? 'remove':'add']('hidden');
-    const fmtDate = (tsOrDate) => { const d = tsOrDate?.toDate?.() ? tsOrDate.toDate() : new Date(tsOrDate); if (Number.isNaN(d.getTime())) return ''; const mm=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${d.getFullYear()}-${mm}-${dd}`; };
-    const safeNum = (v) => (v===null||v===undefined||v==='')? '': Number(v);
-    const escapeHtml = (s) => s?.replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
-
-    // === 5) 首頁圖表/表格 ===
-    let weightChart = null, unsubscribeEntries = null;
+    // Chart / entries
+    let weightChart=null, unsubscribeEntries=null;
     function renderChart(rows){
-      const points = rows.map(r => ({ x: new Date(r.date?.toDate?.() ? r.date.toDate() : r.date), y: Number(r.weight) }));
-      const data = { datasets: [{ label: '體重 (kg)', data: points, tension: 0.3, pointRadius: 3, borderWidth: 2, fill: false }] };
-      const options = { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'day' }, ticks: { autoSkip: true, maxTicksLimit: 8 } }, y: { title: { display: true, text: 'kg' }, ticks: { precision: 1 } } }, plugins: { legend: { display: true }, tooltip: { callbacks: { label: (ctx)=>`體重：${ctx.parsed.y} kg` } } } };
-      if (weightChart) { weightChart.data = data; weightChart.update(); }
-      else { weightChart = new Chart(el.chartCanvas.getContext('2d'), { type: 'line', data, options }); }
+      const points = rows.map(r=>({x:new Date(r.date?.toDate?.()? r.date.toDate(): r.date), y:Number(r.weight)}));
+      const data = { datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
+      const options = { responsive:true, maintainAspectRatio:false, scales:{ x:{ type:'time', time:{ unit:'day' } }, y:{ title:{ display:true, text:'kg' } } } };
+      if (weightChart){ weightChart.data=data; weightChart.update(); } else { weightChart = new Chart(el.chartCanvas.getContext('2d'), { type:'line', data, options }); }
     }
     function renderTable(rows){
-      el.tbody.innerHTML='';
-      if (!rows.length) { show(el.emptyHint,true); return; }
-      show(el.emptyHint,false);
+      el.tbody.innerHTML=''; if(!rows.length){ show(el.emptyHint,true); return; } show(el.emptyHint,false);
       for (const r of rows){
-        const tr = document.createElement('tr'); tr.className='border-b';
-        tr.innerHTML = `
-          <td class="px-3 py-2 text-sm">${fmtDate(r.date)}</td>
-          <td class="px-3 py-2 text-sm font-semibold">${safeNum(r.weight)}</td>
-          <td class="px-3 py-2 text-sm">${safeNum(r.bodyFat)}</td>
-          <td class="px-3 py-2 text-sm">${safeNum(r.muscle)}</td>
-          <td class="px-3 py-2 text-sm">${safeNum(r.waist)}</td>
-          <td class="px-3 py-2 text-sm">${escapeHtml(r.note||'')}</td>
-          <td class="px-3 py-2 text-sm text-right"><button class="text-red-600 hover:underline" data-id="${r.id}">刪除</button></td>`;
-        tr.querySelector('button')?.addEventListener('click', async (e)=>{
-          const id = e.currentTarget.getAttribute('data-id');
-          const user = auth.currentUser; await deleteDoc(doc(db,'users', user.uid, 'entries', id));
-        });
+        const tr=document.createElement('tr'); tr.className='border-b';
+        tr.innerHTML=`<td class='px-3 py-2 text-sm'>${fmtDate(r.date)}</td><td class='px-3 py-2 text-sm font-semibold'>${safeNum(r.weight)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.muscle)}</td><td class='px-3 py-2 text-sm'>${safeNum(r.waist)}</td><td class='px-3 py-2 text-sm'>${escapeHtml(r.note)}</td><td class='px-3 py-2 text-sm text-right'><button class='text-red-600 hover:underline' data-id='${r.id}'>刪除</button></td>`;
+        tr.querySelector('button')?.addEventListener('click', async (e)=>{ const id=e.currentTarget.getAttribute('data-id'); const user=auth.currentUser; await deleteDoc(doc(db,'users',user.uid,'entries',id)); });
         el.tbody.appendChild(tr);
       }
     }
     function renderTrends(rows){
-      if (!rows.length) { el.trend7.textContent='—'; el.trend30.textContent='—'; return; }
+      if(!rows.length){ el.trend7.textContent='—'; el.trend30.textContent='—'; return; }
       const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
-      const delta = (r)=>{ if(!r.length) return null; return +(Number(r[r.length-1].weight)-Number(r[0].weight)).toFixed(1); };
-      const r7 = rows.filter(r => new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
-      const r30= rows.filter(r => new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30));
-      const d7 = delta(r7), d30 = delta(r30);
-      el.trend7.textContent = d7===null? '—': (d7>0? `+${d7} kg` : `${d7} kg`);
-      el.trend30.textContent = d30===null? '—': (d30>0? `+${d30} kg` : `${d30} kg`);
+      const delta=r=>{ if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); };
+      const r7 = rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
+      const r30= rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30));
+      const d7=delta(r7), d30=delta(r30);
+      el.trend7.textContent = d7===null?'—':(d7>0?`+${d7} kg`:`${d7} kg`);
+      el.trend30.textContent = d30===null?'—':(d30>0?`+${d30} kg`:`${d30} kg`);
     }
-
-    // === 6) 會員資料 CRUD ===
+    function startEntriesFeed(uid){
+      const qy=query(collection(db,'users',uid,'entries'), orderBy('date','asc'));
+      if (unsubscribeEntries) unsubscribeEntries();
+      unsubscribeEntries = onSnapshot(qy, snap=>{ const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()})); renderTable(rows); renderChart(rows); renderTrends(rows); });
+    }
     el.saveBtn?.addEventListener('click', async ()=>{
-      const user = auth.currentUser; if(!user) return alert('請先登入');
-      const dateStr = el.date.value; const weightVal = parseFloat(el.weight.value);
-      if (!dateStr) return alert('請選擇日期');
-      if (Number.isNaN(weightVal)) return alert('請輸入體重');
-      const entry = {
-        date: new Date(dateStr+'T00:00:00'),
-        weight: weightVal,
-        bodyFat: el.bodyFat.value ? parseFloat(el.bodyFat.value) : null,
-        muscle: el.muscle.value ? parseFloat(el.muscle.value) : null,
-        waist: el.waist.value ? parseFloat(el.waist.value) : null,
-        note: el.note.value?.trim() || '',
-        createdAt: serverTimestamp()
-      };
-      await addDoc(collection(db,'users', user.uid, 'entries'), entry);
+      const user=auth.currentUser; if(!user) return alert('請先登入');
+      const dateStr=el.date.value; const weightVal=parseFloat(el.weight.value);
+      if(!dateStr) return alert('請選擇日期'); if(Number.isNaN(weightVal)) return alert('請輸入體重');
+      await addDoc(collection(db,'users',user.uid,'entries'), { date:new Date(dateStr+'T00:00:00'), weight:weightVal, bodyFat:el.bodyFat.value?parseFloat(el.bodyFat.value):null, muscle:el.muscle.value?parseFloat(el.muscle.value):null, waist:el.waist.value?parseFloat(el.waist.value):null, note:el.note.value?.trim()||'', createdAt:serverTimestamp() });
       el.weight.value = el.bodyFat.value = el.muscle.value = el.waist.value = el.note.value = '';
     });
 
-    function startEntriesFeed(uid){
-      const qy = query(collection(db,'users', uid, 'entries'), orderBy('date','asc'));
-      if (unsubscribeEntries) { unsubscribeEntries(); }
-      unsubscribeEntries = onSnapshot(qy, (snap)=>{
-        const rows = []; snap.forEach(d=> rows.push({id:d.id, ...d.data()}));
-        renderTable(rows); renderChart(rows); renderTrends(rows);
-      });
-    }
-
-    // === 7) 角色/教練綁定/管理 ===
-    let unsubUsers=null, unsubReqs=null;
-
+    // 角色資料
     async function ensureUserProfile(user){
-      const uref = doc(db,'users', user.uid);
-      const s = await getDoc(uref);
-      const base = { email:user.email||'', displayName:user.displayName||'', role:'member', coachName:null, consent:false, createdAt: serverTimestamp(), subscription:false };
-      if (!s.exists()){
-        if ((user.email||'').toLowerCase()===ADMIN_EMAIL) base.role='admin';
-        await setDoc(uref, base, { merge:true });
-        return base;
-      } else {
-        const data = s.data();
-        if ((user.email||'').toLowerCase()===ADMIN_EMAIL && data.role!=='admin'){
-          await updateDoc(uref, { role:'admin' }); data.role='admin';
-        }
-        return data;
-      }
+      const uref=doc(db,'users',user.uid); const snap=await getDoc(uref);
+      const base={ email:user.email||'', displayName:user.displayName||'', role:'member', coachName:null, consent:false, createdAt:serverTimestamp(), subscription:false };
+      if(!snap.exists()){ if((user.email||'').toLowerCase()===ADMIN_EMAIL) base.role='admin'; await setDoc(uref, base, {merge:true}); return base; }
+      const data=snap.data(); if((user.email||'').toLowerCase()===ADMIN_EMAIL && data.role!=='admin'){ await updateDoc(uref,{role:'admin'}); data.role='admin'; } return data;
     }
-
     function wireMemberBind(user){
       el.bindCoachBtn?.addEventListener('click', async ()=>{
         const name=(el.coachNameInput.value||'').trim(); const email=(el.coachEmailInput.value||'').trim();
-        if(!name) return alert('請輸入教練姓名（或填 無）');
-        if(!el.consentChk.checked) return alert('請先勾選人資料同意書');
-        if(name==='無'){
-          await updateDoc(doc(db,'users', user.uid), { coachName:'無', consent:true, consentAt: serverTimestamp() });
-          show(el.memberBind,false); alert('已設定為無教練，可直接使用。'); return;
-        }
-        await addDoc(collection(db,'coach_requests'), {
-          memberUid:user.uid, memberName:user.displayName||user.email||user.uid, memberEmail:user.email||'',
-          coachName:name, coachEmail: email||'', consent:true, status:'pending', createdAt: serverTimestamp()
-        });
-        if (email){
-          const subject=encodeURIComponent('【體重網站】會員綁定請求');
-          const body=encodeURIComponent(`教練您好：\n\n我（${user.displayName||user.email||user.uid}）想綁定您為我的教練，請協助通知管理者審核。\n網站：linsaipo.github.io/body-weight\n`);
-          window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
-        }
+        if(!name) return alert('請輸入教練姓名（或填 無）'); if(!el.consentChk.checked) return alert('請先勾選人資料同意書');
+        if(name==='無'){ await updateDoc(doc(db,'users',user.uid), {coachName:'無', consent:true, consentAt:serverTimestamp()}); show(el.memberBind,false); alert('已設定為無教練。'); return; }
+        await addDoc(collection(db,'coach_requests'), { memberUid:user.uid, memberName:user.displayName||user.email||user.uid, memberEmail:user.email||'', coachName:name, coachEmail:email||'', consent:true, status:'pending', createdAt:serverTimestamp() });
+        if(email){ const subject=encodeURIComponent('【體重網站】會員綁定請求'); const body=encodeURIComponent(`教練您好：
+
+我（${user.displayName||user.email||user.uid}）想綁定您為我的教練，請協助通知管理者審核。
+網站：linsaipo.github.io/body-weight
+`); window.location.href=`mailto:${email}?subject=${subject}&body=${body}`; }
         alert('已送出綁定請求，待管理者審核。'); show(el.memberBind,false);
       });
       el.skipBindBtn?.addEventListener('click', ()=> show(el.memberBind,false));
     }
-
+    let unsubUsers=null, unsubReqs=null;
     function mountCoachView(profile, user){
-      if (profile.role==='coach' || profile.role==='admin'){
-        show(el.coachSection,true);
-        const myName = profile.displayName || user.email || user.uid;
-        const qMembers = query(collection(db,'users'), where('coachName','==', myName));
+      if(profile.role==='coach' || profile.role==='admin'){
+        show(el.coachSection,true); const myName = profile.displayName || user.email || user.uid;
+        const qMembers=query(collection(db,'users'), where('coachName','==', myName));
         if (unsubUsers) unsubUsers();
-        unsubUsers = onSnapshot(qMembers, async snap => {
-          el.coachMembersTbody.innerHTML='';
-          for (const d of snap.docs){
-            const u = d.data();
-            const entriesRef = collection(db,'users', d.id, 'entries');
-            const qLast = query(entriesRef, orderBy('date','desc'), limit(1));
-            const last = await getDocs(qLast);
-            let latestDate='—', latestWeight='—';
-            last.forEach(ed=>{ const e = ed.data(); latestDate=fmtDate(e.date); latestWeight=e.weight; });
-            const tr=document.createElement('tr'); tr.className='border-b';
-            tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td>`;
-            el.coachMembersTbody.appendChild(tr);
-          }
-        });
+        unsubUsers = onSnapshot(qMembers, async snap=>{ el.coachMembersTbody.innerHTML=''; for(const d of snap.docs){ const u=d.data(); const lastQ=query(collection(db,'users',d.id,'entries'), orderBy('date','desc'), limit(1)); const last=await getDocs(lastQ); let latestDate='—', latestWeight='—'; last.forEach(ed=>{ const e=ed.data(); latestDate=fmtDate(e.date); latestWeight=e.weight;}); const tr=document.createElement('tr'); tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||d.id}</td><td class='px-3 py-2'>${latestDate}</td><td class='px-3 py-2'>${latestWeight}</td>`; el.coachMembersTbody.appendChild(tr);} });
       } else { show(el.coachSection,false); }
     }
-
     function mountAdminView(profile){
-      if (profile.role!=='admin'){ show(el.adminSection,false); return; }
+      if(profile.role!=='admin'){ show(el.adminSection,false); return; }
       show(el.adminSection,true);
-      // 待審請求
-      const qPending = query(collection(db,'coach_requests'), where('status','==','pending'), orderBy('createdAt','asc'));
+      const qPending=query(collection(db,'coach_requests'), where('status','==','pending'), orderBy('createdAt','asc'));
       if (unsubReqs) unsubReqs();
-      unsubReqs = onSnapshot(qPending, snap => {
-        el.pendingReqTbody.innerHTML='';
-        snap.forEach(d=>{
-          const r=d.data(); const tr=document.createElement('tr'); tr.className='border-b';
-          const when = r.createdAt?.toDate?.()? r.createdAt.toDate().toLocaleString(): '—';
-          tr.innerHTML = `<td class='px-3 py-2'>${when}</td><td class='px-3 py-2'>${r.memberName}</td><td class='px-3 py-2'>${r.coachName}</td><td class='px-3 py-2'><button class='approve px-3 py-1 rounded bg-emerald-600 text-white mr-2'>核准</button><button class='reject px-3 py-1 rounded bg-slate-200'>退回</button></td>`;
-          tr.querySelector('.approve')?.addEventListener('click', async ()=>{
-            await updateDoc(doc(db,'users', r.memberUid), { coachName:r.coachName, consent:true, consentAt: serverTimestamp() });
-            await updateDoc(doc(db,'coach_requests', d.id), { status:'approved', handledAt: serverTimestamp() });
-          });
-          tr.querySelector('.reject')?.addEventListener('click', async ()=>{
-            await updateDoc(doc(db,'coach_requests', d.id), { status:'rejected', handledAt: serverTimestamp() });
-          });
-          el.pendingReqTbody.appendChild(tr);
-        });
-      });
-      // 使用者總覽
-      const qAll = query(collection(db,'users'), orderBy('createdAt','asc'));
-      onSnapshot(qAll, snap => {
-        el.usersAdminTbody.innerHTML='';
-        snap.forEach(dd=>{
-          const u=dd.data(); const tr=document.createElement('tr'); tr.className='border-b';
-          tr.innerHTML = `
-            <td class='px-3 py-2'>${u.displayName||u.email||dd.id}</td>
-            <td class='px-3 py-2'>${u.email||''}</td>
-            <td class='px-3 py-2'>
-              <select class='roleSel border rounded px-2 py-1'>
-                <option value='member' ${u.role==='member'?'selected':''}>member</option>
-                <option value='coach' ${u.role==='coach'?'selected':''}>coach</option>
-                <option value='admin' ${u.role==='admin'?'selected':''}>admin</option>
-              </select>
-            </td>
-            <td class='px-3 py-2'><input class='coachNameInput border rounded px-2 py-1 w-40' value='${u.coachName||''}' placeholder='教練姓名或 無' /></td>
-            <td class='px-3 py-2'>${u.role==='coach'? `<label class='text-sm'><input type='checkbox' class='subChk' ${u.subscription?'checked':''}/> 有效</label>`: '—'}</td>
-            <td class='px-3 py-2 text-right'><button class='saveBtn px-3 py-1 rounded bg-slate-900 text-white'>儲存</button></td>`;
-          tr.querySelector('.saveBtn')?.addEventListener('click', async ()=>{
-            const role=tr.querySelector('.roleSel').value;
-            const coachName=tr.querySelector('.coachNameInput').value.trim()||null;
-            const subEl=tr.querySelector('.subChk'); const subscription=subEl? subEl.checked:false;
-            await updateDoc(doc(db,'users', dd.id), { role, coachName, subscription });
-            alert('已儲存');
-          });
-          el.usersAdminTbody.appendChild(tr);
-        });
+      unsubReqs = onSnapshot(qPending, snap=>{ el.pendingReqTbody.innerHTML=''; snap.forEach(d=>{ const r=d.data(); const tr=document.createElement('tr'); tr.className='border-b'; const when=r.createdAt?.toDate?.()? r.createdAt.toDate().toLocaleString():'—'; tr.innerHTML=`<td class='px-3 py-2'>${when}</td><td class='px-3 py-2'>${r.memberName}</td><td class='px-3 py-2'>${r.coachName}</td><td class='px-3 py-2'><button class='approve px-3 py-1 rounded bg-emerald-600 text-white mr-2'>核准</button><button class='reject px-3 py-1 rounded bg-slate-200'>退回</button></td>`; tr.querySelector('.approve')?.addEventListener('click', async ()=>{ await updateDoc(doc(db,'users', r.memberUid), {coachName:r.coachName, consent:true, consentAt:serverTimestamp()}); await updateDoc(doc(db,'coach_requests', d.id), {status:'approved', handledAt:serverTimestamp()}); }); tr.querySelector('.reject')?.addEventListener('click', async ()=>{ await updateDoc(doc(db,'coach_requests', d.id), {status:'rejected', handledAt:serverTimestamp()}); }); el.pendingReqTbody.appendChild(tr); }); });
+      const qAll=query(collection(db,'users'), orderBy('createdAt','asc')); onSnapshot(qAll, snap=>{ el.usersAdminTbody.innerHTML=''; snap.forEach(dd=>{ const u=dd.data(); const tr=document.createElement('tr'); tr.className='border-b'; tr.innerHTML=`<td class='px-3 py-2'>${u.displayName||u.email||dd.id}</td><td class='px-3 py-2'>${u.email||''}</td><td class='px-3 py-2'><select class='roleSel border rounded px-2 py-1'><option value='member' ${u.role==='member'?'selected':''}>member</option><option value='coach' ${u.role==='coach'?'selected':''}>coach</option><option value='admin' ${u.role==='admin'?'selected':''}>admin</option></select></td><td class='px-3 py-2'><input class='coachNameInput border rounded px-2 py-1 w-40' value='${u.coachName||''}' placeholder='教練姓名或 無' /></td><td class='px-3 py-2'>${u.role==='coach'? `<label class='text-sm'><input type='checkbox' class='subChk' ${u.subscription?'checked':''}/> 有效</label>` : '—'}</td><td class='px-3 py-2 text-right'><button class='saveBtn px-3 py-1 rounded bg-slate-900 text-white'>儲存</button></td>`; tr.querySelector('.saveBtn')?.addEventListener('click', async ()=>{ const role=tr.querySelector('.roleSel').value; const coachName=tr.querySelector('.coachNameInput').value.trim()||null; const subEl=tr.querySelector('.subChk'); const subscription=subEl? subEl.checked:false; await updateDoc(doc(db,'users', dd.id), { role, coachName, subscription }); alert('已儲存'); }); el.usersAdminTbody.appendChild(tr); }); });
+      // 快速建立使用者（測試期）
+      el.createUserBtn?.addEventListener('click', async ()=>{
+        const uid=el.newUserUid.value.trim(); if(!uid) return alert('請填 UID');
+        const email=el.newUserEmail.value.trim(); const name=el.newUserName.value.trim(); const role=el.newUserRole.value;
+        try { el.createUserBtn.disabled=true; const old=el.createUserBtn.textContent; el.createUserBtn.textContent='處理中…'; await setDoc(doc(db,'users',uid), { email, displayName:name, role, coachName:null, consent:false, subscription:false, createdAt:serverTimestamp() }, { merge:true }); alert('已建立/更新使用者檔案'); el.createUserBtn.textContent=old; el.createUserBtn.disabled=false; } catch(err){ console.error('[admin-create-user] 失敗',err); alert('建立失敗：'+(err?.message||err)); el.createUserBtn.disabled=false; el.createUserBtn.textContent='建立'; }
       });
     }
 
-    // === 8) 登入狀態監聽 ===
+    // Auth 狀態
     onAuthStateChanged(auth, async (user)=>{
-      // 清理監聽
       if (unsubUsers) { unsubUsers(); unsubUsers=null; }
       if (unsubReqs) { unsubReqs(); unsubReqs=null; }
-
       if (user){
         el.meName.textContent = user.displayName || user.email || '已登入';
         show(el.authSection,false); show(el.appSection,true); show(el.roleRouter,true);
         startEntriesFeed(user.uid);
-
         const profile = await ensureUserProfile(user);
         el.myRoleBadge.textContent = profile.role;
-
-        // 綁定管理者建立使用者按鈕
-        const createBtn = document.getElementById('createUserBtn');
-        createBtn?.addEventListener('click', async ()=>{
-          const uid = document.getElementById('newUserUid').value.trim();
-          const email = document.getElementById('newUserEmail').value.trim();
-          const name = document.getElementById('newUserName').value.trim();
-          const role = document.getElementById('newUserRole').value;
-          if (!uid) { alert('請填 UID'); return; }
-          try {
-            createBtn.disabled = true; const old = createBtn.textContent; createBtn.textContent = '處理中…';
-            await setDoc(doc(db,'users', uid), { email, displayName: name, role, coachName: null, consent: false, subscription: false, createdAt: serverTimestamp() }, { merge: true });
-            alert('已建立/更新使用者檔案');
-            createBtn.textContent = old; createBtn.disabled = false;
-          } catch (err) {
-            console.error('[admin-create-user] 失敗', err);
-            alert('建立失敗：' + (err?.message || err));
-            createBtn.disabled = false; createBtn.textContent = '建立';
-          }
-        });
-          alert('已建立/更新使用者檔案');
-        });
-
-        // 會員需要先完成同意與教練選擇
         const needsBind = (profile.role==='member') && (!profile.consent || !profile.coachName);
-        show(el.memberBind, needsBind);
-        if (needsBind) wireMemberBind(user);
-
-        mountCoachView(profile, user);
-        mountAdminView(profile);
+        show(el.memberBind, needsBind); if(needsBind) wireMemberBind(user);
+        mountCoachView(profile, user); mountAdminView(profile);
       } else {
-        el.meName.textContent='';
-        show(el.appSection,false); show(el.roleRouter,false); show(el.memberBind,false); show(el.coachSection,false); show(el.adminSection,false);
+        el.meName.textContent=''; show(el.appSection,false); show(el.roleRouter,false); show(el.memberBind,false); show(el.coachSection,false); show(el.adminSection,false);
       }
     });
 
-    // === 9) DOM 準備好後再綁定按鈕 + 預設日期 ===
-    document.addEventListener('DOMContentLoaded', () => {
-      bindUI();
-      const t=new Date(); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date && (el.date.value = `${yyyy}-${mm}-${dd}`);
-    }); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date.value = `${yyyy}-${mm}-${dd}`;
-    });
+    // Redirect flow error 忽略（避免阻塞）
+    getRedirectResult(auth).catch(()=>{});
+
+    // DOM 準備好再綁定
+    document.addEventListener('DOMContentLoaded', bindUI);
   </script>
 </head>
 <body class="bg-slate-50 min-h-dvh">
