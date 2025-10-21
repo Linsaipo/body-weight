@@ -3,12 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PharmaFit 藥健康</title>
+  <title>體重會員站（Google / Apple 登入 + 雙向邀請綁定）</title>
+
   <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+
   <!-- Chart.js 與日期 adapter -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+
+  <!-- React（只用於圖表小島） -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
   <!-- Firebase SDK（v12.4.0）Auth + Firestore -->
   <script type="module">
@@ -56,13 +62,21 @@
       coachEmailInput: $('coachEmailInput'), consentChk: $('consentChk'), bindCoachBtn: $('bindCoachBtn'), skipBindBtn: $('skipBindBtn'),
       // member 自行解除
       memberUnbindBtn: $('memberUnbindBtn'),
-      // entries
-      date: $('date'), weight: $('weight'), bodyFat: $('bodyFat'), muscle: $('muscle'), waist: $('waist'), note: $('note'), saveBtn: $('saveBtn'),
-      tbody: $('tbody'), chartCanvas: $('weightChart'), emptyHint: $('emptyHint'), trend7: $('trend7'), trend30: $('trend30'),
-      // coach list/detail
-      coachMembersTbody: $('coachMembersTbody'), coachMemberTitle: $('coachMemberTitle'), coachTrend7: $('coachTrend7'), coachTrend30: $('coachTrend30'), coachMemberChart: $('coachMemberChart'), coachMemberTbody: $('coachMemberTbody'),
-      // admin
-      adminSection: $('admin-section'), usersAdminTbody: $('usersAdminTbody')
+      // entries（表單與顯示）
+      date: $('date'), weight: $('weight'), bodyFat: $('bodyFat'), muscle: $('muscle'), // muscle 為舊「肌肉率 (%)」
+      waist: $('waist'), note: $('note'), saveBtn: $('saveBtn'),
+      visceralFat: $('visceralFat'), muscleMass: $('muscleMass'), boneMass: $('boneMass'),
+      bmr: $('bmr'), bodyAge: $('bodyAge'), waterPct: $('waterPct'),
+      chest: $('chest'), upperAb: $('upperAb'), lowerAb: $('lowerAb'),
+      hip: $('hip'), arm: $('arm'), thigh: $('thigh'),
+
+      // 圖表/清單既有元件
+      chartCanvas: $('weightChart'), tbody: $('tbody'), emptyHint: $('emptyHint'),
+      trend7: $('trend7'), trend30: $('trend30'),
+
+      // 教練頁
+      coachMembersTbody: $('coachMembersTbody'), coachMemberTitle: $('coachMemberTitle'),
+      coachTrend7: $('coachTrend7'), coachTrend30: $('coachTrend30'), coachMemberChart: $('coachMemberChart'), coachMemberTbody: $('coachMemberTbody'),
     };
 
     /********************  綁定一般 UI 行為  ********************/
@@ -76,14 +90,16 @@
       const t=new Date(); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date && (el.date.value=`${yyyy}-${mm}-${dd}`);
     }
 
-    /********************  量測圖表/清單  ********************/
+    /********************  量測圖表/清單（既有）  ********************/
     let weightChart=null, unsubscribeEntries=null;
+
     function renderChart(rows){
       const points = rows.map(r=>({x:new Date(r.date?.toDate?.()? r.date.toDate(): r.date), y:Number(r.weight)}));
       const data = { datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
       const options = { responsive:true, maintainAspectRatio:false, scales:{ x:{ type:'time', time:{ unit:'day' } }, y:{ title:{ display:true, text:'kg' } } } };
       if (weightChart){ weightChart.data=data; weightChart.update(); } else { weightChart = new Chart(el.chartCanvas.getContext('2d'), { type:'line', data, options }); }
     }
+
     function renderTable(rows){
       el.tbody.innerHTML=''; if(!rows.length){ show(el.emptyHint,true); return; } show(el.emptyHint,false);
       for (const r of rows){
@@ -99,6 +115,7 @@
         el.tbody.appendChild(tr);
       }
     }
+
     function renderTrends(rows){
       if(!rows.length){ el.trend7.textContent='—'; el.trend30.textContent='—'; return; }
       const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
@@ -109,27 +126,174 @@
       el.trend7.textContent = d7===null?'—':(d7>0?`+${d7} kg`:`${d7} kg`);
       el.trend30.textContent = d30===null?'—':(d30>0?`+${d30} kg`:`${d30} kg`);
     }
-    function startEntriesFeed(uid){
-      const qy=query(collection(db,'users',uid,'entries'), orderBy('date','asc'));
-      if (unsubscribeEntries) unsubscribeEntries();
-      unsubscribeEntries = onSnapshot(qy, snap=>{ const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()})); renderTable(rows); renderChart(rows); renderTrends(rows); });
+
+    /********************  React 小島：兩張可切換指標的圖表  ********************/
+    const Metrics = {
+      weight: '體重 (kg)',
+      bodyFat: '體脂肪 (%)',
+      visceralFat: '內臟脂肪',
+      muscleMass: '筋肉量 (kg)',
+      boneMass: '骨量 (kg)',
+      bmr: '基礎代謝 (kcal)',
+      bodyAge: '體內年齡',
+      waterPct: '水分 (%)',
+    };
+    const Measures = {
+      chest: '胸圍 (cm)',
+      upperAb: '上腹 (cm)',
+      waist: '腰圍 (cm)',
+      lowerAb: '下腹 (cm)',
+      hip: '臀圍 (cm)',
+      arm: '手臂 (cm)',
+      thigh: '大腿 (cm)',
+    };
+    function toSeries(rows, field) {
+      const pts = rows
+        .map(r => ({ x: new Date(r.date?.toDate?.()? r.date.toDate(): r.date), y: (r[field]??null) }))
+        .filter(p => p.y!==null && !Number.isNaN(p.y));
+      return { labels: pts.map(p=>p.x), data: pts.map(p=>p.y) };
     }
+    const { useEffect, useMemo, useRef, useState } = React;
+
+    function LineChart({ title, rows, field, onChangeField, optionsMap }) {
+      const canvasRef = useRef(null);
+      const chartRef  = useRef(null);
+
+      const { labels, data } = useMemo(()=>toSeries(rows, field), [rows, field]);
+      const labelText = optionsMap[field] || field;
+
+      useEffect(()=>{
+        const ctx = canvasRef.current.getContext('2d');
+        const cfg = {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: labelText,
+              data,
+              tension: 0.3,
+              borderWidth: 2,
+              pointRadius: 2,
+              fill: false,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            parsing: false,
+            scales: { x: { type:'time', time: { unit:'day' } }, y: { beginAtZero: false } }
+          }
+        };
+        if (chartRef.current) {
+          chartRef.current.data.labels = labels;
+          chartRef.current.data.datasets[0].data = data;
+          chartRef.current.data.datasets[0].label = labelText;
+          chartRef.current.update();
+        } else {
+          chartRef.current = new Chart(ctx, cfg);
+        }
+      }, [labels, data, labelText]);
+
+      return (
+        React.createElement('div', { className:'space-y-2' },
+          React.createElement('div', { className:'flex items-center justify-between' },
+            React.createElement('h3', { className:'font-semibold' }, title),
+            React.createElement('select', {
+              className:'border rounded px-2 py-1 text-sm',
+              value: field, onChange: e => onChangeField(e.target.value)
+            }, Object.entries(optionsMap).map(([k,v]) =>
+              React.createElement('option', { key:k, value:k }, v)
+            ))
+          ),
+          React.createElement('div', { className:'h-[260px]' },
+            React.createElement('canvas', { ref:canvasRef })
+          )
+        )
+      );
+    }
+
+    function ChartsPanel({ rows }) {
+      const [metricField, setMetricField] = useState('weight');
+      const [measureField, setMeasureField] = useState('waist');
+      return React.createElement('div', { className:'grid md:grid-cols-2 gap-6' },
+        React.createElement(LineChart, { title:'身體組成', rows, field:metricField, onChangeField:setMetricField, optionsMap:Metrics }),
+        React.createElement(LineChart, { title:'身體量測', rows, field:measureField, onChangeField:setMeasureField, optionsMap:Measures }),
+      );
+    }
+
+    function renderReactCharts(rows){
+      const rootEl = document.getElementById('react-charts');
+      if (!rootEl) return;
+      if (!window.__react_root__) window.__react_root__ = ReactDOM.createRoot(rootEl);
+      window.__react_root__.render(React.createElement(ChartsPanel, { rows }));
+    }
+
+    /********************  Entries 寫入  ********************/
     el.saveBtn?.addEventListener('click', async ()=>{
       const user=auth.currentUser; if(!user) return alert('請先登入');
       const dateStr=el.date.value; const weightVal=parseFloat(el.weight.value);
-      if(!dateStr) return alert('請選擇日期'); if(Number.isNaN(weightVal)) return alert('請輸入體重');
-      await addDoc(collection(db,'users',user.uid,'entries'), { date:new Date(dateStr+'T00:00:00'), weight:weightVal, bodyFat:el.bodyFat.value?parseFloat(el.bodyFat.value):null, muscle:el.muscle.value?parseFloat(el.muscle.value):null, waist:el.waist.value?parseFloat(el.waist.value):null, note:el.note.value?.trim()||'', createdAt:serverTimestamp() });
-      el.weight.value = el.bodyFat.value = el.muscle.value = el.waist.value = el.note.value = '';
+      if(!dateStr) return alert('請選擇日期'); 
+      if(Number.isNaN(weightVal)) return alert('請輸入體重');
+
+      const payload = {
+        date: new Date(dateStr+'T00:00:00'),
+        weight: weightVal,
+        bodyFat: el.bodyFat.value?parseFloat(el.bodyFat.value):null,
+        muscle: el.muscle?.value?parseFloat(el.muscle.value):null, // 舊「肌肉率 (%)」
+        waist: el.waist?.value?parseFloat(el.waist.value):null,
+
+        // 新增的身體組成
+        visceralFat: el.visceralFat.value?parseFloat(el.visceralFat.value):null,
+        muscleMass: el.muscleMass.value?parseFloat(el.muscleMass.value):null,
+        boneMass: el.boneMass.value?parseFloat(el.boneMass.value):null,
+        bmr: el.bmr.value?parseFloat(el.bmr.value):null,
+        bodyAge: el.bodyAge.value?parseFloat(el.bodyAge.value):null,
+        waterPct: el.waterPct.value?parseFloat(el.waterPct.value):null,
+
+        // 量測
+        chest: el.chest.value?parseFloat(el.chest.value):null,
+        upperAb: el.upperAb.value?parseFloat(el.upperAb.value):null,
+        lowerAb: el.lowerAb.value?parseFloat(el.lowerAb.value):null,
+        hip: el.hip.value?parseFloat(el.hip.value):null,
+        arm: el.arm.value?parseFloat(el.arm.value):null,
+        thigh: el.thigh.value?parseFloat(el.thigh.value):null,
+
+        note: el.note.value?.trim()||'',
+        createdAt: serverTimestamp(),
+      };
+
+      await addDoc(collection(db,'users',auth.currentUser.uid,'entries'), payload);
+
+      // 清空輸入
+      ['weight','bodyFat','muscle','waist','note',
+       'visceralFat','muscleMass','boneMass','bmr','bodyAge','waterPct',
+       'chest','upperAb','lowerAb','hip','arm','thigh'
+      ].forEach(id=>{ if(el[id]) el[id].value=''; });
     });
+
+    /********************  監聽 Entries（灌進表格 / 舊圖 / React 圖）  ********************/
+    function startEntriesFeed(uid){
+      const qy=query(collection(db,'users',uid,'entries'), orderBy('date','asc'));
+      if (unsubscribeEntries) unsubscribeEntries();
+      unsubscribeEntries = onSnapshot(qy, snap=>{
+        const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()}));
+        renderTable(rows);
+        renderChart(rows);
+        renderTrends(rows);
+        renderReactCharts(rows); // ✅ 送進 React 小島
+      });
+    }
 
     /********************  使用者檔案  ********************/
     async function ensureUserProfile(user){
       const uref=doc(db,'users',user.uid); const snap=await getDoc(uref);
       const base={ email:(user.email||'').toLowerCase(), displayName:user.displayName||'', role: ((user.email||'').toLowerCase()===ADMIN_EMAIL?'admin':'member'), coachEmail:null, consent:false, createdAt:serverTimestamp(), subscription:false };
       if(!snap.exists()){ await setDoc(uref, base, {merge:true}); return base; }
+      // 若後來把 email 設成 admin，也自動升級角色
       const data = snap.data();
       if(((user.email||'').toLowerCase()===ADMIN_EMAIL) && data.role!=='admin'){
-        await updateDoc(uref,{role:'admin'}); data.role='admin';
+        await updateDoc(uref,{role:'admin'});
+        data.role='admin';
       }
       return data;
     }
@@ -160,16 +324,19 @@
       const qy=query(collection(db,'users',memberUid,'entries'), orderBy('date','asc'));
       unsubCoachDetail = onSnapshot(qy, snap=>{
         const rows=[]; snap.forEach(d=>rows.push({id:d.id, ...d.data()}));
+        // 表格
         el.coachMemberTbody.innerHTML='';
         for (const r of rows){
           const tr=document.createElement('tr'); tr.className='border-b';
           tr.innerHTML=`<td class='px-3 py-2'>${fmtDate(r.date)}</td><td class='px-3 py-2'>${safeNum(r.weight)}</td><td class='px-3 py-2'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2'>${safeNum(r.muscle)}</td><td class='px-3 py-2'>${safeNum(r.waist)}</td><td class='px-3 py-2'>${escapeHtml(r.note||'')}</td>`;
           el.coachMemberTbody.appendChild(tr);
         }
+        // 圖表
         const points = rows.map(r=>({x:new Date(r.date?.toDate?.()?r.date.toDate():r.date), y:Number(r.weight)}));
         const data={ datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
         const options={ responsive:true, maintainAspectRatio:false, scales:{ x:{type:'time', time:{unit:'day'}}, y:{title:{display:true,text:'kg'}} } };
         if (coachDetailChart){ coachDetailChart.data=data; coachDetailChart.update(); } else { coachDetailChart = new Chart(el.coachMemberChart.getContext('2d'), { type:'line', data, options }); }
+        // 7/30 天趨勢
         const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
         const delta=r=>{ if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); };
         const r7 = rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
@@ -207,39 +374,6 @@
       } else { show(el.coachSection,false); }
     }
 
-    /********************  Admin：全用戶管理（列表 + 角色切換）  ********************/
-    let unsubAllUsers=null;
-    function mountAdminView(profile){
-      if(profile.role!=='admin'){ show(el.adminSection,false); if (unsubAllUsers){unsubAllUsers(); unsubAllUsers=null;} return; }
-      show(el.adminSection,true);
-      if (unsubAllUsers) unsubAllUsers();
-      unsubAllUsers = onSnapshot(query(collection(db,'users'), orderBy('createdAt','asc')),(snap)=>{
-        el.usersAdminTbody.innerHTML='';
-        snap.forEach((d)=>{
-          const u=d.data();
-          const tr=document.createElement('tr'); tr.className='border-b';
-          tr.innerHTML = `
-            <td class='px-3 py-2'>${u.displayName||u.email||d.id}</td>
-            <td class='px-3 py-2'>${u.email||''}</td>
-            <td class='px-3 py-2'>
-              <select class='roleSel border rounded px-2 py-1'>
-                <option value='member' ${u.role==='member'?'selected':''}>member</option>
-                <option value='coach' ${u.role==='coach'?'selected':''}>coach</option>
-                <option value='admin' ${u.role==='admin'?'selected':''}>admin</option>
-              </select>
-            </td>
-            <td class='px-3 py-2 text-right'>
-              <button class='saveBtn px-3 py-1 rounded bg-slate-900 text-white'>儲存</button>
-            </td>`;
-          tr.querySelector('.saveBtn')?.addEventListener('click', async ()=>{
-            const role=tr.querySelector('.roleSel').value;
-            try{ await updateDoc(doc(db,'users', d.id), { role }); alert('已儲存'); }catch(e){ alert('更新失敗：'+(e?.message||e)); }
-          });
-          el.usersAdminTbody.appendChild(tr);
-        });
-      });
-    }
-
     /********************  邀請：helper（email -> uid）  ********************/
     async function findUidByEmail(emailLower){
       const qy = query(collection(db,'users'), where('email','==', emailLower), limit(1));
@@ -252,6 +386,7 @@
     function mountInvitesArea(profile, user){
       show(el.inviteSection, true);
 
+      // 發送邀請：會員→教練 或 教練→會員
       el.sendInviteBtn?.addEventListener('click', async ()=>{
         const toEmail = (el.inviteTargetEmail.value || '').trim().toLowerCase();
         if(!toEmail) return alert('請輸入對方 Email');
@@ -280,6 +415,7 @@
         }catch(e){ alert('送出失敗：'+(e?.message||e)); }
       });
 
+      // 收件匣：我當收件者 + 我是發件者（pending）
       const meEmail = (user.email||'').toLowerCase();
       if (unsubInvites) unsubInvites();
       const box = new Map(); // id -> invite
@@ -316,7 +452,9 @@
           tr.querySelector('.cancel')?.addEventListener('click', async ()=>{ try{ await updateDoc(doc(db,'invites', id), { status:'cancelled' }); }catch(e){ alert('取消失敗：'+(e?.message||e)); } });
           tr.querySelector('.accept')?.addEventListener('click', async ()=>{
             try{
+              // 重要：先更新 users，再把 invite 設為 accepted
               if (inv.type === 'coach_to_member'){
+                // 會員端接受：本人更新自己的 users 檔
                 await updateDoc(doc(db,'users', user.uid), {
                   coachEmail: (inv.fromEmail||'').toLowerCase(),
                   consent: true,
@@ -324,6 +462,7 @@
                 });
                 await updateDoc(doc(db,'invites', id), { status:'accepted' });
               } else {
+                // 教練端接受：更新會員的 users 檔
                 const myEmailLower = (user.email||'').toLowerCase();
                 await updateDoc(doc(db,'users', inv.memberUid), {
                   coachEmail: myEmailLower,
@@ -355,14 +494,15 @@
         const profile = await ensureUserProfile(user);
         el.myRoleBadge.textContent = profile.role;
 
+        // 若尚未綁定，顯示會員表單
         const needsBind = (profile.role==='member') && (!profile.coachEmail);
         show(el.memberBind, needsBind); if(needsBind) wireMemberBind(user);
 
+        // 教練頁 + 邀請區
         mountCoachView(profile, user);
         mountInvitesArea(profile, user);
-        mountAdminView(profile);
       } else {
-        el.meName.textContent=''; show(el.appSection,false); show(el.roleRouter,false); show(el.memberBind,false); show(el.coachSection,false); show(el.inviteSection,false); show(el.adminSection,false);
+        el.meName.textContent=''; show(el.appSection,false); show(el.roleRouter,false); show(el.memberBind,false); show(el.coachSection,false); show(el.inviteSection,false);
       }
     });
 
@@ -373,7 +513,7 @@
 <body class="bg-slate-50 min-h-dvh">
   <header class="bg-white border-b sticky top-0 z-10">
     <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-lg sm:text-xl font-bold">PharmaFit 藥健康</h1>
+      <h1 class="text-lg sm:text-xl font-bold">體重會員站（Google / Apple 登入 + 雙向邀請綁定）</h1>
       <div class="text-sm flex items-center gap-2">
         <a href="#role-router" id="openRoleBtn" class="px-3 py-1.5 rounded-lg bg-slate-100 border hover:bg-slate-200">角色/管理</a>
         <span id="meName" class="text-slate-600"></span>
@@ -406,15 +546,19 @@
       <div class="lg:col-span-1">
         <div class="bg-white rounded-2xl shadow p-6 sticky top-20">
           <h2 class="text-lg font-bold mb-4">新增身體數據</h2>
+
           <div class="space-y-3">
             <div>
               <label class="block text-sm mb-1">日期</label>
               <input id="date" type="date" class="w-full px-3 py-2 rounded border" />
             </div>
+
             <div>
               <label class="block text-sm mb-1">體重 (kg)<span class="text-red-500"> *</span></label>
               <input id="weight" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" placeholder="例如 72.3" />
             </div>
+
+            <!-- 基本三項（舊欄位） -->
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-sm mb-1">體脂率 (%)</label>
@@ -425,16 +569,74 @@
                 <input id="muscle" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
               </div>
             </div>
-            <div>
-              <label class="block text-sm mb-1">腰圍 (cm)</label>
-              <input id="waist" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+
+            <!-- 身體組成（8） -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm mb-1">內臟脂肪</label>
+                <input id="visceralFat" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">筋肉量 (kg)</label>
+                <input id="muscleMass" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">骨量 (kg)</label>
+                <input id="boneMass" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">基礎代謝 (kcal)</label>
+                <input id="bmr" type="number" step="1" inputmode="numeric" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">體內年齡</label>
+                <input id="bodyAge" type="number" step="1" inputmode="numeric" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">水分 (%)</label>
+                <input id="waterPct" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
             </div>
+
+            <!-- 量測（7） -->
+            <div class="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm mb-1">胸圍 (cm)</label>
+                <input id="chest" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">上腹 (cm)</label>
+                <input id="upperAb" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">腰圍 (cm)</label>
+                <input id="waist" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">下腹 (cm)</label>
+                <input id="lowerAb" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">臀圍 (cm)</label>
+                <input id="hip" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">手臂 (cm)</label>
+                <input id="arm" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+              <div>
+                <label class="block text-sm mb-1">大腿 (cm)</label>
+                <input id="thigh" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+              </div>
+            </div>
+
             <div>
               <label class="block text-sm mb-1">備註</label>
               <textarea id="note" rows="2" class="w-full px-3 py-2 rounded border" placeholder="睡不飽、重訓日、外食等…"></textarea>
             </div>
             <button id="saveBtn" class="w-full mt-2 px-4 py-2 rounded-lg bg-emerald-600 text-white hover:opacity-90">儲存</button>
           </div>
+
           <p class="text-xs text-slate-500 mt-3">資料儲存在你的帳號（Firestore）。</p>
         </div>
       </div>
@@ -447,6 +649,12 @@
             <div class="text-sm text-slate-600">近 7 天：<span id="trend7">—</span>，近 30 天：<span id="trend30">—</span></div>
           </div>
           <canvas id="weightChart" class="w-full h-full"></canvas>
+        </div>
+
+        <!-- ✅ React 進階圖表（兩張可切換指標） -->
+        <div class="bg-white rounded-2xl shadow p-6 space-y-4">
+          <h2 class="text-lg font-bold">進階圖表（可切換指標）</h2>
+          <div id="react-charts"></div>
         </div>
 
         <div class="bg-white rounded-2xl shadow overflow-hidden">
@@ -488,7 +696,6 @@
           <a href="#member-bind" class="underline">會員綁定表單</a>
           <a href="#invite-section" class="underline">邀請/收件匣</a>
           <a href="#coach-section" class="underline">教練頁</a>
-          <a href="#admin-section" class="underline">管理員</a>
         </div>
       </div>
     </div>
@@ -517,7 +724,7 @@
     </div>
   </section>
 
-  <!-- 邀請區：雙向、站內同意/拒絕/取消 -->
+  <!-- 邀請區 -->
   <section id="invite-section" class="max-w-5xl mx-auto px-4 py-6 hidden">
     <div class="grid md:grid-cols-2 gap-6">
       <div class="bg-white rounded-2xl shadow p-6">
@@ -541,7 +748,7 @@
     </div>
   </section>
 
-  <!-- 教練頁：查看名單與數據概覽 -->
+  <!-- 教練頁 -->
   <section id="coach-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
     <div class="grid gap-6 md:grid-cols-3">
       <div class="bg-white rounded-2xl shadow p-6 md:col-span-1">
@@ -569,23 +776,8 @@
     </div>
   </section>
 
-  <!-- Admin：所有使用者列表 -->
-  <section id="admin-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
-    <div class="bg-white rounded-2xl shadow p-6">
-      <h2 class="text-lg font-bold mb-4">使用者總覽（Admin）</h2>
-      <div class="overflow-x-auto">
-        <table class="min-w-full text-left text-sm">
-          <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">名稱</th><th class="px-3 py-2">Email</th><th class="px-3 py-2">角色</th><th class="px-3 py-2 text-right">操作</th></tr></thead>
-          <tbody id="usersAdminTbody"></tbody>
-        </table>
-      </div>
-      <p class="text-xs text-slate-500 mt-2">提示：若 Admin 看不到列表，請確認 Firestore 規則允許 admin 讀寫 users 集合。</p>
-    </div>
-  </section>
-
   <footer class="max-w-5xl mx-auto px-4 py-10 text-center text-xs text-slate-500">
-    © 2025 PharmaFit 藥健康 — 提供健康追蹤與教練管理平台。<br>
-    <span>Powered by Firestore + Firebase Auth</span>
+    Demo 站，雙向邀請綁定。<br/>請確保 Firestore 規則為最新版本（允許教練接受會員邀請時更新 users 且需 pending）。
   </footer>
 </body>
 </html>
