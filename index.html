@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>體重會員站（Google / Apple 登入 + 雙向邀請綁定）</title>
+  <title>PharmaFit 會員站（雙向邀請 + 2 張可切換圖表）</title>
 
   <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -12,7 +12,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
 
-  <!-- React（只用於圖表小島） -->
+  <!-- React (for charts island) -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
@@ -37,7 +37,7 @@
     const db = getFirestore(app);
 
     // 指定誰是管理者（可看全部）
-    const ADMIN_EMAIL = 'linsaipo@gmail.com'; // ✅ 只宣告一次
+    const ADMIN_EMAIL = 'linsaipo@gmail.com';
 
     /********************  工具  ********************/
     const $ = (id)=>document.getElementById(id);
@@ -58,25 +58,25 @@
       myRoleBadge: $('myRoleBadge'), memberBind: $('member-bind'), coachSection: $('coach-section'),
       // invites
       inviteSection: $('invite-section'), inviteTargetEmail: $('inviteTargetEmail'), sendInviteBtn: $('sendInviteBtn'), invitesTbody: $('invitesTbody'), invitesEmpty: $('invitesEmpty'),
-      // bind form (只留 email)
+      // bind form
       coachEmailInput: $('coachEmailInput'), consentChk: $('consentChk'), bindCoachBtn: $('bindCoachBtn'), skipBindBtn: $('skipBindBtn'),
       // member 自行解除
       memberUnbindBtn: $('memberUnbindBtn'),
-      // entries（表單與顯示）
-      date: $('date'), weight: $('weight'), bodyFat: $('bodyFat'), muscle: $('muscle'), // muscle 為舊「肌肉率 (%)」
+
+      // entries（表單）
+      date: $('date'), weight: $('weight'), bodyFat: $('bodyFat'),
       waist: $('waist'), note: $('note'), saveBtn: $('saveBtn'),
       visceralFat: $('visceralFat'), muscleMass: $('muscleMass'), boneMass: $('boneMass'),
       bmr: $('bmr'), bodyAge: $('bodyAge'), waterPct: $('waterPct'),
       chest: $('chest'), upperAb: $('upperAb'), lowerAb: $('lowerAb'),
       hip: $('hip'), arm: $('arm'), thigh: $('thigh'),
 
-      // 圖表/清單既有元件
-      chartCanvas: $('weightChart'), tbody: $('tbody'), emptyHint: $('emptyHint'),
-      trend7: $('trend7'), trend30: $('trend30'),
+      // 歷史表格
+      tbody: $('tbody'), emptyHint: $('emptyHint'),
 
       // 教練頁
       coachMembersTbody: $('coachMembersTbody'), coachMemberTitle: $('coachMemberTitle'),
-      coachTrend7: $('coachTrend7'), coachTrend30: $('coachTrend30'), coachMemberChart: $('coachMemberChart'), coachMemberTbody: $('coachMemberTbody'),
+      coachMemberChart: $('coachMemberChart'), coachMemberTbody: $('coachMemberTbody'),
     };
 
     /********************  綁定一般 UI 行為  ********************/
@@ -88,43 +88,6 @@
       el.openRoleBtn?.addEventListener('click', (e)=>{ e.preventDefault(); show(el.roleRouter,true); el.roleRouter?.scrollIntoView({behavior:'smooth'}); });
       // 預設日期
       const t=new Date(); const yyyy=t.getFullYear(); const mm=String(t.getMonth()+1).padStart(2,'0'); const dd=String(t.getDate()).padStart(2,'0'); el.date && (el.date.value=`${yyyy}-${mm}-${dd}`);
-    }
-
-    /********************  量測圖表/清單（既有）  ********************/
-    let weightChart=null, unsubscribeEntries=null;
-
-    function renderChart(rows){
-      const points = rows.map(r=>({x:new Date(r.date?.toDate?.()? r.date.toDate(): r.date), y:Number(r.weight)}));
-      const data = { datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
-      const options = { responsive:true, maintainAspectRatio:false, scales:{ x:{ type:'time', time:{ unit:'day' } }, y:{ title:{ display:true, text:'kg' } } } };
-      if (weightChart){ weightChart.data=data; weightChart.update(); } else { weightChart = new Chart(el.chartCanvas.getContext('2d'), { type:'line', data, options }); }
-    }
-
-    function renderTable(rows){
-      el.tbody.innerHTML=''; if(!rows.length){ show(el.emptyHint,true); return; } show(el.emptyHint,false);
-      for (const r of rows){
-        const tr=document.createElement('tr'); tr.className='border-b';
-        tr.innerHTML=`<td class='px-3 py-2 text-sm'>${fmtDate(r.date)}</td>
-                      <td class='px-3 py-2 text-sm font-semibold'>${safeNum(r.weight)}</td>
-                      <td class='px-3 py-2 text-sm'>${safeNum(r.bodyFat)}</td>
-                      <td class='px-3 py-2 text-sm'>${safeNum(r.muscle)}</td>
-                      <td class='px-3 py-2 text-sm'>${safeNum(r.waist)}</td>
-                      <td class='px-3 py-2 text-sm'>${escapeHtml(r.note)}</td>
-                      <td class='px-3 py-2 text-sm text-right'><button class='text-red-600 hover:underline' data-id='${r.id}'>刪除</button></td>`;
-        tr.querySelector('button')?.addEventListener('click', async (e)=>{ const id=e.currentTarget.getAttribute('data-id'); const user=auth.currentUser; await deleteDoc(doc(db,'users',user.uid,'entries',id)); });
-        el.tbody.appendChild(tr);
-      }
-    }
-
-    function renderTrends(rows){
-      if(!rows.length){ el.trend7.textContent='—'; el.trend30.textContent='—'; return; }
-      const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
-      const delta=r=>{ if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); };
-      const r7 = rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
-      const r30= rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30));
-      const d7=delta(r7), d30=delta(r30);
-      el.trend7.textContent = d7===null?'—':(d7>0?`+${d7} kg`:`${d7} kg`);
-      el.trend30.textContent = d30===null?'—':(d30>0?`+${d30} kg`:`${d30} kg`);
     }
 
     /********************  React 小島：兩張可切換指標的圖表  ********************/
@@ -228,7 +191,7 @@
       window.__react_root__.render(React.createElement(ChartsPanel, { rows }));
     }
 
-    /********************  Entries 寫入  ********************/
+    /********************  儲存資料（不含舊「肌肉率」）  ********************/
     el.saveBtn?.addEventListener('click', async ()=>{
       const user=auth.currentUser; if(!user) return alert('請先登入');
       const dateStr=el.date.value; const weightVal=parseFloat(el.weight.value);
@@ -239,10 +202,8 @@
         date: new Date(dateStr+'T00:00:00'),
         weight: weightVal,
         bodyFat: el.bodyFat.value?parseFloat(el.bodyFat.value):null,
-        muscle: el.muscle?.value?parseFloat(el.muscle.value):null, // 舊「肌肉率 (%)」
         waist: el.waist?.value?parseFloat(el.waist.value):null,
 
-        // 新增的身體組成
         visceralFat: el.visceralFat.value?parseFloat(el.visceralFat.value):null,
         muscleMass: el.muscleMass.value?parseFloat(el.muscleMass.value):null,
         boneMass: el.boneMass.value?parseFloat(el.boneMass.value):null,
@@ -250,7 +211,6 @@
         bodyAge: el.bodyAge.value?parseFloat(el.bodyAge.value):null,
         waterPct: el.waterPct.value?parseFloat(el.waterPct.value):null,
 
-        // 量測
         chest: el.chest.value?parseFloat(el.chest.value):null,
         upperAb: el.upperAb.value?parseFloat(el.upperAb.value):null,
         lowerAb: el.lowerAb.value?parseFloat(el.lowerAb.value):null,
@@ -265,23 +225,51 @@
       await addDoc(collection(db,'users',auth.currentUser.uid,'entries'), payload);
 
       // 清空輸入
-      ['weight','bodyFat','muscle','waist','note',
+      ['weight','bodyFat','waist','note',
        'visceralFat','muscleMass','boneMass','bmr','bodyAge','waterPct',
        'chest','upperAb','lowerAb','hip','arm','thigh'
       ].forEach(id=>{ if(el[id]) el[id].value=''; });
     });
 
-    /********************  監聽 Entries（灌進表格 / 舊圖 / React 圖）  ********************/
+    /********************  監聽 Entries（送進表格 + React 圖）  ********************/
+    let unsubscribeEntries=null;
     function startEntriesFeed(uid){
       const qy=query(collection(db,'users',uid,'entries'), orderBy('date','asc'));
       if (unsubscribeEntries) unsubscribeEntries();
       unsubscribeEntries = onSnapshot(qy, snap=>{
         const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()}));
         renderTable(rows);
-        renderChart(rows);
-        renderTrends(rows);
-        renderReactCharts(rows); // ✅ 送進 React 小島
+        renderReactCharts(rows);
       });
+    }
+
+    /********************  歷史表格（顯示全部欄位）  ********************/
+    function renderTable(rows){
+      el.tbody.innerHTML=''; if(!rows.length){ show(el.emptyHint,true); return; } show(el.emptyHint,false);
+      for (const r of rows){
+        const tr=document.createElement('tr'); tr.className='border-b text-sm';
+        tr.innerHTML=`
+          <td class='px-3 py-2'>${fmtDate(r.date)}</td>
+          <td class='px-3 py-2 font-semibold'>${safeNum(r.weight)}</td>
+          <td class='px-3 py-2'>${safeNum(r.bodyFat)}</td>
+          <td class='px-3 py-2'>${safeNum(r.visceralFat)}</td>
+          <td class='px-3 py-2'>${safeNum(r.muscleMass)}</td>
+          <td class='px-3 py-2'>${safeNum(r.boneMass)}</td>
+          <td class='px-3 py-2'>${safeNum(r.bmr)}</td>
+          <td class='px-3 py-2'>${safeNum(r.bodyAge)}</td>
+          <td class='px-3 py-2'>${safeNum(r.waterPct)}</td>
+          <td class='px-3 py-2'>${safeNum(r.chest)}</td>
+          <td class='px-3 py-2'>${safeNum(r.upperAb)}</td>
+          <td class='px-3 py-2'>${safeNum(r.waist)}</td>
+          <td class='px-3 py-2'>${safeNum(r.lowerAb)}</td>
+          <td class='px-3 py-2'>${safeNum(r.hip)}</td>
+          <td class='px-3 py-2'>${safeNum(r.arm)}</td>
+          <td class='px-3 py-2'>${safeNum(r.thigh)}</td>
+          <td class='px-3 py-2'>${escapeHtml(r.note||'')}</td>
+          <td class='px-3 py-2 text-right'><button class='text-red-600 hover:underline' data-id='${r.id}'>刪除</button></td>`;
+        tr.querySelector('button')?.addEventListener('click', async (e)=>{ const id=e.currentTarget.getAttribute('data-id'); const user=auth.currentUser; await deleteDoc(doc(db,'users',user.uid,'entries',id)); });
+        el.tbody.appendChild(tr);
+      }
     }
 
     /********************  使用者檔案  ********************/
@@ -289,7 +277,6 @@
       const uref=doc(db,'users',user.uid); const snap=await getDoc(uref);
       const base={ email:(user.email||'').toLowerCase(), displayName:user.displayName||'', role: ((user.email||'').toLowerCase()===ADMIN_EMAIL?'admin':'member'), coachEmail:null, consent:false, createdAt:serverTimestamp(), subscription:false };
       if(!snap.exists()){ await setDoc(uref, base, {merge:true}); return base; }
-      // 若後來把 email 設成 admin，也自動升級角色
       const data = snap.data();
       if(((user.email||'').toLowerCase()===ADMIN_EMAIL) && data.role!=='admin'){
         await updateDoc(uref,{role:'admin'});
@@ -324,26 +311,24 @@
       const qy=query(collection(db,'users',memberUid,'entries'), orderBy('date','asc'));
       unsubCoachDetail = onSnapshot(qy, snap=>{
         const rows=[]; snap.forEach(d=>rows.push({id:d.id, ...d.data()}));
-        // 表格
-        el.coachMemberTbody.innerHTML='';
-        for (const r of rows){
-          const tr=document.createElement('tr'); tr.className='border-b';
-          tr.innerHTML=`<td class='px-3 py-2'>${fmtDate(r.date)}</td><td class='px-3 py-2'>${safeNum(r.weight)}</td><td class='px-3 py-2'>${safeNum(r.bodyFat)}</td><td class='px-3 py-2'>${safeNum(r.muscle)}</td><td class='px-3 py-2'>${safeNum(r.waist)}</td><td class='px-3 py-2'>${escapeHtml(r.note||'')}</td>`;
-          el.coachMemberTbody.appendChild(tr);
-        }
-        // 圖表
+        // 圖表（用體重）
         const points = rows.map(r=>({x:new Date(r.date?.toDate?.()?r.date.toDate():r.date), y:Number(r.weight)}));
         const data={ datasets:[{ label:'體重 (kg)', data:points, tension:0.3, pointRadius:3, borderWidth:2, fill:false }] };
         const options={ responsive:true, maintainAspectRatio:false, scales:{ x:{type:'time', time:{unit:'day'}}, y:{title:{display:true,text:'kg'}} } };
         if (coachDetailChart){ coachDetailChart.data=data; coachDetailChart.update(); } else { coachDetailChart = new Chart(el.coachMemberChart.getContext('2d'), { type:'line', data, options }); }
-        // 7/30 天趨勢
-        const now=new Date(); const daysAgo=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-n);
-        const delta=r=>{ if(!r.length) return null; return +(Number(r.at(-1).weight)-Number(r[0].weight)).toFixed(1); };
-        const r7 = rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(7));
-        const r30= rows.filter(r=> new Date(r.date?.toDate?.()?r.date.toDate():r.date) >= daysAgo(30));
-        const d7=delta(r7), d30=delta(r30);
-        el.coachTrend7.textContent = d7===null?'—':(d7>0?`+${d7} kg`:`${d7} kg`);
-        el.coachTrend30.textContent = d30===null?'—':(d30>0?`+${d30} kg`:`${d30} kg`);
+
+        // 表格（關鍵欄位包含筋肉量）
+        el.coachMemberTbody.innerHTML='';
+        for (const r of rows){
+          const tr=document.createElement('tr'); tr.className='border-b text-sm';
+          tr.innerHTML=`<td class='px-3 py-2'>${fmtDate(r.date)}</td>
+                        <td class='px-3 py-2'>${safeNum(r.weight)}</td>
+                        <td class='px-3 py-2'>${safeNum(r.bodyFat)}</td>
+                        <td class='px-3 py-2'>${safeNum(r.muscleMass)}</td>
+                        <td class='px-3 py-2'>${safeNum(r.waist)}</td>
+                        <td class='px-3 py-2'>${escapeHtml(r.note||'')}</td>`;
+          el.coachMemberTbody.appendChild(tr);
+        }
       });
     }
     function mountCoachView(profile, user){
@@ -386,7 +371,6 @@
     function mountInvitesArea(profile, user){
       show(el.inviteSection, true);
 
-      // 發送邀請：會員→教練 或 教練→會員
       el.sendInviteBtn?.addEventListener('click', async ()=>{
         const toEmail = (el.inviteTargetEmail.value || '').trim().toLowerCase();
         if(!toEmail) return alert('請輸入對方 Email');
@@ -415,10 +399,9 @@
         }catch(e){ alert('送出失敗：'+(e?.message||e)); }
       });
 
-      // 收件匣：我當收件者 + 我是發件者（pending）
       const meEmail = (user.email||'').toLowerCase();
       if (unsubInvites) unsubInvites();
-      const box = new Map(); // id -> invite
+      const box = new Map();
       const unsubTo = onSnapshot(query(collection(db,'invites'), where('toEmail','==', meEmail), where('status','==','pending')), snap=>{
         for(const ch of snap.docChanges()){
           if(ch.type==='removed'){ box.delete(ch.doc.id);} else { box.set(ch.doc.id,{id:ch.doc.id,...ch.doc.data()}); }
@@ -452,9 +435,7 @@
           tr.querySelector('.cancel')?.addEventListener('click', async ()=>{ try{ await updateDoc(doc(db,'invites', id), { status:'cancelled' }); }catch(e){ alert('取消失敗：'+(e?.message||e)); } });
           tr.querySelector('.accept')?.addEventListener('click', async ()=>{
             try{
-              // 重要：先更新 users，再把 invite 設為 accepted
               if (inv.type === 'coach_to_member'){
-                // 會員端接受：本人更新自己的 users 檔
                 await updateDoc(doc(db,'users', user.uid), {
                   coachEmail: (inv.fromEmail||'').toLowerCase(),
                   consent: true,
@@ -462,7 +443,6 @@
                 });
                 await updateDoc(doc(db,'invites', id), { status:'accepted' });
               } else {
-                // 教練端接受：更新會員的 users 檔
                 const myEmailLower = (user.email||'').toLowerCase();
                 await updateDoc(doc(db,'users', inv.memberUid), {
                   coachEmail: myEmailLower,
@@ -512,8 +492,8 @@
 </head>
 <body class="bg-slate-50 min-h-dvh">
   <header class="bg-white border-b sticky top-0 z-10">
-    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-      <h1 class="text-lg sm:text-xl font-bold">體重會員站（Google / Apple 登入 + 雙向邀請綁定）</h1>
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <h1 class="text-lg sm:text-xl font-bold">PharmaFit 會員站（Google/Apple 登入、雙向邀請、2 張圖表）</h1>
       <div class="text-sm flex items-center gap-2">
         <a href="#role-router" id="openRoleBtn" class="px-3 py-1.5 rounded-lg bg-slate-100 border hover:bg-slate-200">角色/管理</a>
         <span id="meName" class="text-slate-600"></span>
@@ -522,7 +502,7 @@
     </div>
   </header>
 
-  <!-- 未登入：提供 Google/Apple 登入 -->
+  <!-- 未登入 -->
   <section id="auth-section" class="max-w-md mx-auto px-4 py-8">
     <div class="bg-white rounded-2xl shadow p-6">
       <h2 class="text-xl font-bold mb-4">選擇登入方式</h2>
@@ -540,7 +520,7 @@
   </section>
 
   <!-- 已登入主介面：左表單 + 右圖表/清單 -->
-  <section id="app-section" class="hidden max-w-5xl mx-auto px-4 py-6">
+  <section id="app-section" class="hidden max-w-6xl mx-auto px-4 py-6">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- 左側：輸入表單 -->
       <div class="lg:col-span-1">
@@ -558,15 +538,15 @@
               <input id="weight" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" placeholder="例如 72.3" />
             </div>
 
-            <!-- 基本三項（舊欄位） -->
+            <!-- 基本：體脂率 -->
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-sm mb-1">體脂率 (%)</label>
                 <input id="bodyFat" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
               </div>
               <div>
-                <label class="block text-sm mb-1">肌肉率 (%)</label>
-                <input id="muscle" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
+                <label class="block text-sm mb-1">腰圍 (cm)</label>
+                <input id="waist" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
               </div>
             </div>
 
@@ -609,10 +589,6 @@
                 <input id="upperAb" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
               </div>
               <div>
-                <label class="block text-sm mb-1">腰圍 (cm)</label>
-                <input id="waist" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
-              </div>
-              <div>
                 <label class="block text-sm mb-1">下腹 (cm)</label>
                 <input id="lowerAb" type="number" step="0.1" inputmode="decimal" class="w-full px-3 py-2 rounded border" />
               </div>
@@ -641,35 +617,38 @@
         </div>
       </div>
 
-      <!-- 右側：圖表 + 清單 -->
+      <!-- 右側：兩張可切換圖表 + 歷史表 -->
       <div class="lg:col-span-2 space-y-6">
-        <div class="bg-white rounded-2xl shadow p-6 h-[360px]">
-          <div class="flex items-center justify-between mb-3">
-            <h2 class="text-lg font-bold">體重走勢圖</h2>
-            <div class="text-sm text-slate-600">近 7 天：<span id="trend7">—</span>，近 30 天：<span id="trend30">—</span></div>
-          </div>
-          <canvas id="weightChart" class="w-full h-full"></canvas>
-        </div>
-
         <!-- ✅ React 進階圖表（兩張可切換指標） -->
         <div class="bg-white rounded-2xl shadow p-6 space-y-4">
-          <h2 class="text-lg font-bold">進階圖表（可切換指標）</h2>
+          <h2 class="text-lg font-bold">圖表（可切換指標）</h2>
           <div id="react-charts"></div>
         </div>
 
         <div class="bg-white rounded-2xl shadow overflow-hidden">
           <div class="p-6 border-b">
-            <h2 class="text-lg font-bold">歷史紀錄</h2>
+            <h2 class="text-lg font-bold">歷史紀錄（完整欄位）</h2>
           </div>
           <div class="overflow-x-auto">
             <table class="min-w-full text-left">
               <thead>
                 <tr class="bg-slate-50 border-b text-sm">
                   <th class="px-3 py-2 font-semibold">日期</th>
-                  <th class="px-3 py-2 font-semibold">體重 (kg)</th>
-                  <th class="px-3 py-2 font-semibold">體脂率 (%)</th>
-                  <th class="px-3 py-2 font-semibold">肌肉率 (%)</th>
-                  <th class="px-3 py-2 font-semibold">腰圍 (cm)</th>
+                  <th class="px-3 py-2 font-semibold">體重</th>
+                  <th class="px-3 py-2 font-semibold">體脂</th>
+                  <th class="px-3 py-2 font-semibold">內臟脂肪</th>
+                  <th class="px-3 py-2 font-semibold">筋肉量</th>
+                  <th class="px-3 py-2 font-semibold">骨量</th>
+                  <th class="px-3 py-2 font-semibold">基代</th>
+                  <th class="px-3 py-2 font-semibold">體內年齡</th>
+                  <th class="px-3 py-2 font-semibold">水分</th>
+                  <th class="px-3 py-2 font-semibold">胸</th>
+                  <th class="px-3 py-2 font-semibold">上腹</th>
+                  <th class="px-3 py-2 font-semibold">腰</th>
+                  <th class="px-3 py-2 font-semibold">下腹</th>
+                  <th class="px-3 py-2 font-semibold">臀</th>
+                  <th class="px-3 py-2 font-semibold">手臂</th>
+                  <th class="px-3 py-2 font-semibold">大腿</th>
                   <th class="px-3 py-2 font-semibold">備註</th>
                   <th class="px-3 py-2"></th>
                 </tr>
@@ -684,7 +663,7 @@
   </section>
 
   <!-- 角色切換的主容器 -->
-  <section id="role-router" class="max-w-5xl mx-auto px-4 py-6 hidden">
+  <section id="role-router" class="max-w-6xl mx-auto px-4 py-6 hidden">
     <div class="grid gap-4 sm:grid-cols-3">
       <div class="rounded-xl border bg-white p-4">
         <h3 class="font-bold mb-2">我的角色</h3>
@@ -725,7 +704,7 @@
   </section>
 
   <!-- 邀請區 -->
-  <section id="invite-section" class="max-w-5xl mx-auto px-4 py-6 hidden">
+  <section id="invite-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
     <div class="grid md:grid-cols-2 gap-6">
       <div class="bg-white rounded-2xl shadow p-6">
         <h3 class="text-lg font-bold mb-3">發送邀請</h3>
@@ -763,12 +742,18 @@
       <div class="bg-white rounded-2xl shadow p-6 md:col-span-2">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-lg font-bold">會員詳情：<span id="coachMemberTitle" class="font-normal text-slate-600">未選擇</span></h2>
-          <div class="text-sm text-slate-600">近 7 天：<span id="coachTrend7">—</span>，近 30 天：<span id="coachTrend30">—</span></div>
         </div>
         <div class="h-[320px]"><canvas id="coachMemberChart" class="w-full h-full"></canvas></div>
         <div class="mt-4 overflow-x-auto">
           <table class="min-w-full text-left text-sm">
-            <thead><tr class="bg-slate-50 border-b"><th class="px-3 py-2">日期</th><th class="px-3 py-2">體重</th><th class="px-3 py-2">體脂</th><th class="px-3 py-2">肌肉</th><th class="px-3 py-2">腰圍</th><th class="px-3 py-2">備註</th></tr></thead>
+            <thead><tr class="bg-slate-50 border-b">
+              <th class="px-3 py-2">日期</th>
+              <th class="px-3 py-2">體重</th>
+              <th class="px-3 py-2">體脂</th>
+              <th class="px-3 py-2">筋肉量</th>
+              <th class="px-3 py-2">腰圍</th>
+              <th class="px-3 py-2">備註</th>
+            </tr></thead>
             <tbody id="coachMemberTbody"></tbody>
           </table>
         </div>
@@ -776,8 +761,8 @@
     </div>
   </section>
 
-  <footer class="max-w-5xl mx-auto px-4 py-10 text-center text-xs text-slate-500">
-    Demo 站，雙向邀請綁定。<br/>請確保 Firestore 規則為最新版本20251021002。
+  <footer class="max-w-6xl mx-auto px-4 py-10 text-center text-xs text-slate-500">
+    PharmaFit Demo — 僅供內部測試。
   </footer>
 </body>
 </html>
