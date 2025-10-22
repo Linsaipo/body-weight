@@ -77,7 +77,7 @@ onAuthStateChanged(auth, async (user) => {
   setUserBadge(user, profile.role);
 
   // 預設導向（登入後若還在 login，就導到 analytics）
-  if (location.hash === '#/login') location.hash = '#/analytics';
+  if (location.hash === '#/login') location.hash = '#/input';
 
   startRouter(ctx);
 });
