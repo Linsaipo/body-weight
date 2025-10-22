@@ -213,34 +213,57 @@ export default {
     }
 
     /* ========== 發送邀請 ========== */
-    sendInviteBtn.addEventListener('click', async () => {
-      const toEmail = (inviteEmail.value || '').trim().toLowerCase();
-      if (!toEmail) return alert('請輸入 Email');
-      const me = (user.email || '').toLowerCase();
-      if (toEmail === me) return alert('不能邀請自己');
+    import {
+  collection, addDoc, serverTimestamp, getDocs, query, where, limit
+} from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
 
-      const type = isCoachLike ? 'coach_to_member' : 'member_to_coach';
-      let memberUid = isCoachLike ? await findUidByEmail(db, toEmail) : user.uid; // 教練端若找不到對方，仍可送出
-      if (isCoachLike && !memberUid) {
-        const ok = confirm('找不到該會員帳號（對方可能尚未登入建立檔案）。仍要送出邀請嗎？');
-        if (!ok) return;
-      }
-      try {
-        await addDoc(collection(db, 'invites'), {
-          type,
-          fromUid: user.uid,
-          fromEmail: me,
-          toEmail,
-          memberUid: memberUid ?? null,
-          status: 'pending',
-          createdAt: serverTimestamp()
-        });
-        inviteEmail.value = '';
-        alert('已送出邀請');
-      } catch (e) {
-        alert('送出失敗：' + (e?.message || e));
-      }
-    });
+async function sendInvite(ctx, toEmailRaw){
+  const { db, user, profile } = ctx;
+  if(!user) return alert('請先登入');
+
+  const meEmail = (user.email || '').toLowerCase();
+  const toEmail = (toEmailRaw || '').trim().toLowerCase();
+  if(!toEmail) return alert('請輸入對方 Email');
+
+  // 角色判斷（教練 / 會員）
+  const isCoach = profile?.role === 'coach' || profile?.role === 'admin';
+
+  // 預設值，注意 memberUid 不能是 undefined
+  let type = isCoach ? 'coach_to_member' : 'member_to_coach';
+  let memberUid = null;
+
+  if(isCoach){
+    // 教練 → 會員：規則允許 memberUid 為 null（或字串），兩種都可過
+    // 如要嘗試抓到會員 uid 可加上這段（抓不到就維持 null）
+    const findQ = query(
+      collection(db,'users'),
+      where('email','==', toEmail),
+      limit(1)
+    );
+    const ss = await getDocs(findQ);
+    if(!ss.empty){
+      memberUid = ss.docs[0].id;  // 可有可無；規則允許 null
+    }
+  }else{
+    // 會員 → 教練：這邊 memberUid 一定知道，就是本人
+    memberUid = user.uid;
+  }
+
+  const payload = {
+    type,                       // 'member_to_coach' or 'coach_to_member'
+    fromUid: user.uid,
+    fromEmail: meEmail,
+    toEmail,
+    memberUid: memberUid ?? null, // ★ 不要是 undefined
+    status: 'pending',            // ★ 必須是 pending
+    createdAt: serverTimestamp()  // ★ 必須 create 當下就寫入
+  };
+
+  console.log('[invite] create payload =', payload);
+  await addDoc(collection(db,'invites'), payload);
+
+  alert('邀請已送出');
+}
 
     /* ========== 邀請收件匣（同意 / 拒絕 / 取消） ========== */
     const toQ = query(collection(db, 'invites'), where('toEmail', '==', meEmail), where('status', '==', 'pending'));
