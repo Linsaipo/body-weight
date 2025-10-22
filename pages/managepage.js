@@ -181,24 +181,35 @@ export default {
           try{ await updateDoc(doc(db,'invites', id), {status:'cancelled'}); }catch(e){ alert('取消失敗：'+(e?.message||e)); }
         });
         tr.querySelector('.accept')?.addEventListener('click', async ()=>{
-          try{
-            // 教練或 Admin 接受：把會員的 users.coachEmail 設為自己
-            const targetMemberUid = inv.memberUid;
-            await updateDoc(doc(db,'users', targetMemberUid), {
-              coachEmail: meEmail,
-              consent: true,
-              consentAt: serverTimestamp()
-            });
-            await updateDoc(doc(db,'invites', id), {status:'accepted'});
-            alert('已完成綁定');
-          }catch(e){ alert('綁定失敗：'+(e?.message||e)); }
-        });
-        tr.querySelector('.reject')?.addEventListener('click', async ()=>{
-          try{ await updateDoc(doc(db,'invites', id), {status:'rejected'}); }catch(e){ alert('拒絕失敗：'+(e?.message||e)); }
-        });
-        tbody.appendChild(tr);
-      }
-    };
+  try{
+    if (inv.type === 'member_to_coach') {
+      // 我是教練（或 Admin）在同意會員的邀請
+      // 滿足規則：必須同時寫入 inviteRefId（就是這一筆邀請的 id）
+      await updateDoc(doc(db,'users', inv.memberUid), {
+        coachEmail: meEmail,                // 我的 email（教練）
+        inviteRefId: inv.id,               // ★ 關鍵：帶上 inviteRefId 才能過規則
+        consent: true,
+        consentAt: serverTimestamp()
+      });
+      await updateDoc(doc(db,'invites', inv.id), { status:'accepted' });
+
+    } else if (inv.type === 'coach_to_member') {
+      // 我是會員在同意教練的邀請（規則允許「本人更新」）
+      await updateDoc(doc(db,'users', ctx.user.uid), {
+        coachEmail: (inv.fromEmail || '').toLowerCase(), // 對方（教練）的 email
+        inviteRefId: inv.id,
+        consent: true,
+        consentAt: serverTimestamp()
+      });
+      await updateDoc(doc(db,'invites', inv.id), { status:'accepted' });
+    }
+
+    alert('已完成綁定');
+  }catch(e){
+    console.error(e);
+    alert('綁定失敗：' + (e?.message || e));
+  }
+});
 
     // 收我為收件者 + 我為發件者(pending)
     const subTo = onSnapshot(
