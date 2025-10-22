@@ -185,7 +185,7 @@ export default {
         unsubMembers = onSnapshot(qMyMembers, renderRows);
       } else {
         // 會員身分不顯示
-        membersBody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-slate-500">你不是教練/管理員，此區無資料。</td></tr>`;
+        membersBody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-slate-500">有意願成為教練者，歡迎與管理員聯絡，謝謝。</td></tr>`;
       }
     }
     await mountMembers();
