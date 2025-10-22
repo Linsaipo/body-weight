@@ -1,23 +1,36 @@
-// src/router.js
-const routes = new Map();
+// /router.js
+const routes = {};
 
-export function addRoute(path, loader) {
-  routes.set(path, loader);
-}
-
-export async function navigate(hash, ctx) {
-  const path = (hash || location.hash || '#/login').replace('#', '');
-  const [clean] = path.split('?');
-  const loader = routes.get(clean) || routes.get('/login');
-  const container = document.getElementById('app');
-  container.innerHTML = '<div class="py-16 text-center text-slate-500">載入中…</div>';
-  const view = await loader(ctx);
-  container.innerHTML = '';
-  container.appendChild(view);
+export function addRoute(path, pageFn) {
+  routes[path] = pageFn;
 }
 
 export function startRouter(ctx) {
-  window.addEventListener('hashchange', () => navigate(location.hash, ctx));
-  if (!location.hash) location.hash = '#/login';
-  navigate(location.hash, ctx);
+  window.addEventListener('hashchange', () => render(ctx));
+  render(ctx);
+}
+
+function render(ctx) {
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  const path = (location.hash || '#/analytics').replace(/^#/, '');
+  const pageFn = routes[path] || routes['/analytics'];
+
+  try {
+    const result = pageFn ? pageFn(ctx) : '';
+    // 允許回傳純字串或 { html, mount }
+    if (typeof result === 'string') {
+      app.innerHTML = result;
+    } else {
+      app.innerHTML = result?.html || '';
+      // 等 DOM 插入後再掛載事件
+      if (typeof result?.mount === 'function') {
+        queueMicrotask(() => result.mount(ctx));
+      }
+    }
+  } catch (e) {
+    console.error('Router render error:', e);
+    app.innerHTML = `<div class="p-6 text-red-600">載入頁面時發生錯誤：${e?.message || e}</div>`;
+  }
 }
