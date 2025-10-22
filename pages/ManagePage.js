@@ -2,9 +2,6 @@
 import {
   collection, query, orderBy, where, getDocs, limit
 } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
-import {
-  Chart
-} from "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js";
 
 export default function ManagePage(ctx) {
   const { db, profile, user } = ctx;
@@ -73,6 +70,9 @@ export default function ManagePage(ctx) {
   const trend30 = detailBox.querySelector('#trend30');
   const entryRows = detailBox.querySelector('#entryRows');
 
+  // 使用全域 Chart（index.html 已以 <script> 載入）
+  const Chart = window.Chart;
+
   const chart1 = new Chart(detailBox.querySelector('#chart1'), {
     type: 'line',
     data: { datasets: [] },
@@ -80,8 +80,17 @@ export default function ManagePage(ctx) {
       responsive: true,
       animation: { duration: 800, easing: 'easeInOutQuart' },
       interaction: { mode: 'nearest', intersect: false },
-      plugins: { tooltip: { enabled: true } },
-      elements: { line: { tension: 0.3 } }
+      elements: { line: { tension: 0.3 } },
+      plugins: {
+        tooltip: {
+          enabled: true,
+          callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}` }
+        }
+      },
+      scales: {
+        x: { type: 'time', time: { unit: 'day' } },
+        y: { title: { display: true, text: 'kg' } }
+      }
     }
   });
   const chart2 = new Chart(detailBox.querySelector('#chart2'), {
@@ -91,8 +100,17 @@ export default function ManagePage(ctx) {
       responsive: true,
       animation: { duration: 800, easing: 'easeInOutQuart' },
       interaction: { mode: 'nearest', intersect: false },
-      plugins: { tooltip: { enabled: true } },
-      elements: { line: { tension: 0.3 } }
+      elements: { line: { tension: 0.3 } },
+      plugins: {
+        tooltip: {
+          enabled: true,
+          callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}` }
+        }
+      },
+      scales: {
+        x: { type: 'time', time: { unit: 'day' } },
+        y: { title: { display: true, text: 'kg' } }
+      }
     }
   });
 
@@ -100,7 +118,6 @@ export default function ManagePage(ctx) {
   async function openDetail(memberUid, title) {
     detailName.textContent = title;
 
-    // 拉全量 entries（升冪）
     const qy = query(collection(db, 'users', memberUid, 'entries'), orderBy('date', 'asc'));
     const ss = await getDocs(qy);
     const rows = ss.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -143,20 +160,16 @@ export default function ManagePage(ctx) {
   async function loadMembers() {
     const myEmail = (user.email || '').toLowerCase();
     let qMembers;
-
-    // Admin 看全部；教練只看自己綁的
     if (profile.role === 'admin') {
-      qMembers = query(collection(db, 'users'));
+      qMembers = query(collection(db, 'users')); // Admin 看全部
     } else {
-      qMembers = query(collection(db, 'users'), where('coachEmail', '==', myEmail));
+      qMembers = query(collection(db, 'users'), where('coachEmail', '==', myEmail)); // 教練看自己
     }
-
     const ss = await getDocs(qMembers);
     memberRows.innerHTML = '';
 
     for (const d of ss.docs) {
       const u = d.data();
-      // 取最新一筆紀錄
       const lastQ = query(collection(db, 'users', d.id, 'entries'), orderBy('date', 'desc'), limit(1));
       const last = await getDocs(lastQ);
       let latestDate = '—', latestWeight = '—';
