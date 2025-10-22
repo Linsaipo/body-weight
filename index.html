@@ -5,53 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PharmaFit 藥健康</title>
   <meta name="description" content="PharmaFit 藥健康 — 健康追蹤與教練管理平台" />
-
-  <!-- Favicon：簡易 SVG -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%2306b6d4'/><text x='50' y='58' font-size='48' text-anchor='middle' fill='white'>P</text></svg>">
-
+  <link rel="icon" href="PharmaFit.png" />
   <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Chart.js & date adapter（圖表頁與教練頁會用到）-->
+  <!-- Chart.js & date adapter（如果圖表頁會用到） -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-
-  <!-- Firebase app 由 main.js 內引入 -->
+  <!-- App main -->
   <script type="module" src="./main.js"></script>
-
-  <style> html, body { height: 100%; } </style>
+  <style>html,body{height:100%}</style>
 </head>
 <body class="bg-slate-50 min-h-screen">
   <header class="bg-white border-b sticky top-0 z-10">
     <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      <!-- 左：Logo + 文字 -->
-      <a href="#/analytics" class="flex items-center gap-3">
-        <img src="./PharmaFit.png" alt="PharmaFit" class="h-8 w-auto" />
-        <span class="text-lg sm:text-xl font-bold">PharmaFit 藥健康</span>
-      </a>
-
-      <!-- 中：導覽 -->
-      <nav class="hidden sm:flex items-center gap-3 text-sm">
+      <div class="flex items-center gap-3">
+        <img src="./PharmaFit.png" alt="PharmaFit" class="h-9 w-auto" />
+        <a href="#/analytics" class="text-xl font-bold">PharmaFit 藥健康</a>
+      </div>
+      <nav class="hidden sm:flex items-center gap-4 text-sm">
         <a href="#/input" class="px-2 py-1 rounded hover:bg-slate-100">輸入</a>
         <a href="#/analytics" class="px-2 py-1 rounded hover:bg-slate-100">圖表/歷史</a>
         <a href="#/profile" class="px-2 py-1 rounded hover:bg-slate-100">我的資料</a>
         <a href="#/manage" class="px-2 py-1 rounded hover:bg-slate-100">教練專區</a>
+        <!-- 只給 admin 看的連結（由 main.js 控制顯示/隱藏） -->
         <a id="navRoles" href="#/roles" class="hidden px-2 py-1 rounded hover:bg-slate-100">權限管理</a>
       </nav>
-
-      <!-- 右：使用者徽章 + 登出 -->
       <div class="flex items-center gap-3">
-        <div id="userBadge" class="text-xs text-slate-600"></div>
-        <button id="logoutBtn"
-                class="hidden px-3 py-1.5 rounded-lg border bg-white hover:bg-slate-50 text-sm"
-                onclick="logout()">
-          登出
-        </button>
+        <span id="userBadge" class="text-sm text-slate-600"></span>
+        <button id="logoutBtn" class="hidden px-3 py-1.5 rounded bg-slate-900 text-white hover:opacity-90" onclick="logout()">登出</button>
       </div>
     </div>
   </header>
 
-  <!-- 主要內容容器，router 會把頁面渲染到這裡 -->
   <main id="app" class="max-w-6xl mx-auto p-4"></main>
 
   <footer class="max-w-6xl mx-auto px-4 py-8 text-center text-xs text-slate-500">

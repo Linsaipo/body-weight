@@ -1,15 +1,22 @@
+// main.js
 import { auth, db, ADMIN_EMAIL } from './firebase.js';
-import { onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js';
-import { doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
+import {
+  onAuthStateChanged,
+  signOut
+} from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js';
+import {
+  doc, getDoc, setDoc, serverTimestamp
+} from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
+
 import { addRoute, startRouter } from './router.js';
 
-// 一定要全小寫檔名 & 相對路徑
-import LoginPage       from './pages/loginpage.js';
-import InputPage       from './pages/inputpage.js';
-import AnalyticsPage   from './pages/analyticspage.js';
-import ProfilePage     from './pages/profilepage.js';
-import ManagePage      from './pages/managepage.js';
-import AdminRolesPage  from './pages/adminrolespage.js';
+// 你的頁面（保持你目前檔名的小寫）
+import LoginPage        from './pages/loginpage.js';
+import InputPage        from './pages/inputpage.js';
+import AnalyticsPage    from './pages/analyticspage.js';
+import ProfilePage      from './pages/profilepage.js';
+import ManagePage       from './pages/managepage.js';
+import AdminRolesPage   from './pages/adminrolespage.js';
 
 // 註冊路由
 addRoute('/login',     LoginPage);
@@ -17,17 +24,31 @@ addRoute('/input',     InputPage);
 addRoute('/analytics', AnalyticsPage);
 addRoute('/profile',   ProfilePage);
 addRoute('/manage',    ManagePage);
-addRoute('/roles',     AdminRolesPage);
+addRoute('/roles',     AdminRolesPage); // 只有 admin 看得到連結，但直接輸入網址也會在頁面內做守門
 
 const ctx = { auth, db, ADMIN_EMAIL };
 
-function setUserBadge(user, role) {
-  const node = document.getElementById('userBadge');
-  const logoutBtn = document.getElementById('btnLogout');
-  if (node)     node.textContent = user ? `${user.email || '使用者'} · ${role}` : '';
-  if (logoutBtn) logoutBtn.classList.toggle('hidden', !user); // 登入才顯示「登出」
+function setUserHeader(user, role) {
+  const badge = document.getElementById('userBadge');
+  const btn   = document.getElementById('logoutBtn');
+  const navRoles = document.getElementById('navRoles');
+
+  if (user) {
+    const name = user.displayName || user.email || '使用者';
+    if (badge)   badge.textContent = `${name} / ${role}`;
+    if (btn)     btn.classList.remove('hidden');
+    if (navRoles) {
+      if (role === 'admin') navRoles.classList.remove('hidden');
+      else navRoles.classList.add('hidden');
+    }
+  } else {
+    if (badge)   badge.textContent = '';
+    if (btn)     btn.classList.add('hidden');
+    if (navRoles) navRoles.classList.add('hidden');
+  }
 }
 
+// 建立/同步使用者檔案與角色
 async function ensureUserProfile(user) {
   const ref = doc(db, 'users', user.uid);
   const snap = await getDoc(ref);
@@ -46,6 +67,7 @@ async function ensureUserProfile(user) {
     await setDoc(ref, base, { merge: true });
     return base;
   }
+
   const data = snap.data();
   // 若後來把 email 設成 admin，也自動升級角色
   if ((user.email || '').toLowerCase() === ADMIN_EMAIL && data.role !== 'admin') {
@@ -57,7 +79,7 @@ async function ensureUserProfile(user) {
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
-    setUserBadge(null, '');
+    setUserHeader(null, '');
     if (location.hash !== '#/login') location.hash = '#/login';
     startRouter(ctx);
     return;
@@ -67,17 +89,17 @@ onAuthStateChanged(auth, async (user) => {
   ctx.user = user;
   ctx.profile = profile;
 
-  setUserBadge(user, profile.role);
+  setUserHeader(user, profile.role);
 
-  // 登入後若還在 login 或沒有 hash，導到輸入頁
-  if (location.hash === '#/login' || !location.hash) {
+  // 登入後預設導到 /input
+  if (location.hash === '#/login' || location.hash === '' || location.hash === '#/') {
     location.hash = '#/input';
   }
 
   startRouter(ctx);
 });
 
-// 登出
+// 供 header 按鈕呼叫
 window.logout = async () => {
   await signOut(auth);
   location.hash = '#/login';
