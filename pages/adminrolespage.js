@@ -1,117 +1,124 @@
+// /pages/adminrolespage.js
 import {
-  collection, query, orderBy, getDocs, updateDoc, doc, onSnapshot
+  collection, onSnapshot, query, orderBy, updateDoc, doc
 } from 'https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js';
 
 export default function AdminRolesPage(ctx) {
-  return {
-    title: '權限管理（Admin 專用）',
-    async render(root) {
-      // 只有 admin 可以進來
-      if (!ctx?.profile || ctx.profile.role !== 'admin') {
-        root.innerHTML = `
-          <section class="max-w-4xl mx-auto px-4 py-10">
-            <div class="bg-white rounded-2xl shadow p-8 text-center">
-              <h2 class="text-xl font-bold mb-3">403 無權限</h2>
-              <p class="text-slate-600">只有管理員（admin）能使用此頁面。</p>
-              <a class="inline-block mt-5 px-4 py-2 rounded bg-slate-900 text-white" href="#/analytics">回報表 / 歷史</a>
-            </div>
-          </section>
-        `;
-        return;
-      }
+  const { db, profile } = ctx;
 
-      root.innerHTML = `
-        <section class="max-w-6xl mx-auto px-4 py-6">
-          <div class="bg-white rounded-2xl shadow p-6">
-            <div class="flex items-center justify-between mb-4">
-              <h2 class="text-lg font-bold">權限管理（Admin）</h2>
-              <div class="text-sm text-slate-600">
-                目前登入：<span class="font-mono">${ctx.user?.email || ''}</span>
-              </div>
-            </div>
+  // 非 admin 直接顯示禁止畫面（防止手動輸入 #/roles）
+  if (!profile || profile.role !== 'admin') {
+    return `
+      <div class="bg-white rounded-2xl shadow p-6">
+        <h2 class="text-lg font-bold mb-3">權限管理</h2>
+        <p class="text-sm text-slate-600">只有 Admin 可以使用此頁面。</p>
+      </div>
+    `;
+  }
 
-            <div class="overflow-x-auto">
-              <table class="min-w-full text-left text-sm">
-                <thead>
-                  <tr class="bg-slate-50 border-b">
-                    <th class="px-3 py-2">Email</th>
-                    <th class="px-3 py-2">顯示名稱</th>
-                    <th class="px-3 py-2">目前角色</th>
-                    <th class="px-3 py-2">設定為</th>
-                    <th class="px-3 py-2">狀態</th>
-                  </tr>
-                </thead>
-                <tbody id="admin-roles-tbody">
-                  <tr><td class="px-3 py-4 text-slate-500" colspan="5">讀取中…</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      `;
+  const html = /*html*/`
+    <div class="bg-white rounded-2xl shadow p-6">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <h2 class="text-lg font-bold">權限管理（Admin 專用）</h2>
+        <input id="rolesSearch" type="text" placeholder="搜尋 Email / 名稱"
+               class="w-full sm:w-72 px-3 py-2 rounded border" />
+      </div>
 
-      const tbody = root.querySelector('#admin-roles-tbody');
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-left text-sm">
+          <thead>
+            <tr class="bg-slate-50 border-b">
+              <th class="px-3 py-2">Email</th>
+              <th class="px-3 py-2">顯示名稱</th>
+              <th class="px-3 py-2">角色</th>
+              <th class="px-3 py-2">教練 Email</th>
+              <th class="px-3 py-2">操作</th>
+            </tr>
+          </thead>
+          <tbody id="rolesTbody"></tbody>
+        </table>
+      </div>
+      <p id="rolesEmpty" class="text-sm text-slate-500 mt-3">載入中…</p>
+    </div>
+  `;
 
-      // 讀取所有使用者
-      const qy = query(collection(ctx.db, 'users'), orderBy('email'));
-      const snap = await getDocs(qy);
+  function mount() {
+    const tbody = document.getElementById('rolesTbody');
+    const empty = document.getElementById('rolesEmpty');
+    const searchInput = document.getElementById('rolesSearch');
 
-      const rows = [];
-      snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
+    let allUsers = [];   // 原始資料
+    let keyword = '';    // 搜尋關鍵字
 
-      if (!rows.length) {
-        tbody.innerHTML = `<tr><td class="px-3 py-4 text-slate-500" colspan="5">目前還沒有使用者資料</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = rows.map(u => {
-        const role = (u.role || 'member');
-        const email = u.email || '';
-        const name = u.displayName || '';
-        const isMe = (ctx.user?.uid === u.id);
-
-        return `
-          <tr class="border-b align-middle">
-            <td class="px-3 py-2 font-mono">${email}</td>
-            <td class="px-3 py-2">${name}</td>
-            <td class="px-3 py-2">
-              <span class="inline-block rounded bg-slate-100 px-2 py-1">${role}</span>
-            </td>
-            <td class="px-3 py-2">
-              <select class="px-2 py-1 border rounded text-sm" data-uid="${u.id}" ${isMe ? 'disabled' : ''}>
-                <option value="member" ${role==='member'?'selected':''}>member</option>
-                <option value="coach"  ${role==='coach'?'selected':''}>coach</option>
-                <option value="admin"  ${role==='admin'?'selected':''}>admin</option>
-              </select>
-              ${isMe ? '<span class="ml-2 text-xs text-slate-500">(無法修改自己的角色)</span>' : ''}
-            </td>
-            <td class="px-3 py-2">
-              <span id="s-${u.id}" class="text-slate-500">—</span>
-            </td>
-          </tr>
-        `;
-      }).join('');
-
-      // 監聽 select 變更，直接更新 Firestore
-      tbody.addEventListener('change', async (e) => {
-        const sel = e.target;
-        if (!sel.matches('select[data-uid]')) return;
-
-        const uid = sel.getAttribute('data-uid');
-        const role = sel.value;
-        const status = root.querySelector(`#s-${uid}`);
-
-        try {
-          status.textContent = '儲存中…';
-          await updateDoc(doc(ctx.db, 'users', uid), { role });
-          status.textContent = '已儲存';
-          status.className = 'text-emerald-600';
-        } catch (err) {
-          console.error(err);
-          status.textContent = '錯誤';
-          status.className = 'text-red-600';
-        }
+    const qy = query(collection(db, 'users'), orderBy('email', 'asc'));
+    const unsub = onSnapshot(qy, snap => {
+      allUsers = [];
+      snap.forEach(d => {
+        const u = d.data();
+        allUsers.push({ id: d.id, ...u });
       });
+      render();
+    });
+
+    function render() {
+      const rows = allUsers.filter(u => {
+        if (!keyword) return true;
+        const k = keyword.toLowerCase();
+        return (u.email || '').toLowerCase().includes(k) ||
+               (u.displayName || '').toLowerCase().includes(k);
+      });
+
+      tbody.innerHTML = '';
+      if (rows.length === 0) {
+        empty.textContent = '沒有符合條件的使用者。';
+        empty.classList.remove('hidden');
+        return;
+      }
+      empty.classList.add('hidden');
+
+      for (const u of rows) {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b';
+        tr.innerHTML = `
+          <td class="px-3 py-2 whitespace-nowrap">${u.email || ''}</td>
+          <td class="px-3 py-2">${u.displayName || ''}</td>
+          <td class="px-3 py-2">
+            <select class="roleSel px-2 py-1 rounded border">
+              <option value="member" ${u.role === 'member' ? 'selected' : ''}>member</option>
+              <option value="coach"  ${u.role === 'coach'  ? 'selected' : ''}>coach</option>
+              <option value="admin"  ${u.role === 'admin'  ? 'selected' : ''}>admin</option>
+            </select>
+          </td>
+          <td class="px-3 py-2">${u.coachEmail || '—'}</td>
+          <td class="px-3 py-2">
+            <button class="saveBtn px-2 py-1 rounded bg-slate-100 border">儲存</button>
+          </td>
+        `;
+        // 儲存按鈕
+        tr.querySelector('.saveBtn')?.addEventListener('click', async () => {
+          const newRole = tr.querySelector('.roleSel').value;
+          try {
+            await updateDoc(doc(db, 'users', u.id), { role: newRole });
+            tr.querySelector('.saveBtn').textContent = '已儲存';
+            setTimeout(() => (tr.querySelector('.saveBtn').textContent = '儲存'), 1500);
+          } catch (e) {
+            alert('更新失敗：' + (e?.message || e));
+          }
+        });
+        tbody.appendChild(tr);
+      }
     }
-  };
+
+    // 搜尋
+    searchInput?.addEventListener('input', (e) => {
+      keyword = e.target.value || '';
+      render();
+    });
+
+    // 離開頁面時自動 unsubscribe（簡易處理：路由再次渲染就會移除舊 DOM，自然解除）
+    window.addEventListener('hashchange', () => unsub(), { once: true });
+  }
+
+  // 回傳 {html, mount} 交給 router 掛載
+  return { html, mount };
 }
