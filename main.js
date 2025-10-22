@@ -12,11 +12,11 @@ import {
 import { addRoute, startRouter } from './router.js';
 
 // ✅ 路徑與檔名「全部用小寫」並且是相對路徑
-import LoginPage     from './pages/login.js';
-import InputPage     from './pages/input.js';
-import AnalyticsPage from './pages/charts.js';   // 你的「圖表/歷史」頁
-import ProfilePage   from './pages/profile.js';
-import ManagePage    from './pages/admin.js';    // 教練/Admin 管理頁
+import LoginPage     from './pages/loginpage.js';
+import InputPage     from './pages/inputpage.js';
+import AnalyticsPage from './pages/analyticspage.js';
+import ProfilePage   from './pages/profilepage.js';
+import ManagePage    from './pages/managepage.js';
 
 // 註冊路由
 addRoute('/login',     LoginPage);
