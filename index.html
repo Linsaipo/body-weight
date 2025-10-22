@@ -50,7 +50,7 @@
       myRoleBadge: $('myRoleBadge'), memberBind: $('member-bind'), coachSection: $('coach-section'),
       // invites
       inviteSection: $('invite-section'), inviteTargetEmail: $('inviteTargetEmail'), sendInviteBtn: $('sendInviteBtn'), invitesTbody: $('invitesTbody'), invitesEmpty: $('invitesEmpty'),
-      // bind form (只留 email)
+      // bind form
       coachEmailInput: $('coachEmailInput'), consentChk: $('consentChk'), bindCoachBtn: $('bindCoachBtn'), skipBindBtn: $('skipBindBtn'),
       // member 自行解除
       memberUnbindBtn: $('memberUnbindBtn'),
@@ -265,8 +265,9 @@
       return data;
     }
 
-    /********************  教練頁  ********************/
+    /********************  教練 / 管理員頁  ********************/
     let unsubUsers=null, unsubCoachDetail=null, coachDetailChart=null;
+
     function openCoachMemberDetail(memberUid, title){
       el.coachMemberTitle.textContent = title;
       if (unsubCoachDetail){ unsubCoachDetail(); unsubCoachDetail=null; }
@@ -296,15 +297,21 @@
       });
     }
 
+    // 讓 admin 看全部；教練只看綁我的
     function mountCoachView(profile, user){
       if(profile.role==='coach' || profile.role==='admin'){
         show(el.coachSection,true);
         const myEmail = (user.email||'').toLowerCase();
-        const qMembers=query(collection(db,'users'), where('coachEmail','==', myEmail));
+        const qMembers = (profile.role==='admin')
+          ? query(collection(db,'users')) // admin -> 全部
+          : query(collection(db,'users'), where('coachEmail','==', myEmail));
+
         if (unsubUsers) unsubUsers();
         unsubUsers = onSnapshot(qMembers, async snap=>{
           el.coachMembersTbody.innerHTML='';
-          for(const d of snap.docs){ const u=d.data();
+          for(const d of snap.docs){
+            const u=d.data();
+            // 會員最後一筆
             const lastQ=query(collection(db,'users',d.id,'entries'), orderBy('date','desc'), limit(1));
             const last=await getDocs(lastQ); let latestDate='—', latestWeight='—';
             last.forEach(ed=>{ const e=ed.data(); latestDate=fmtDate(e.date); latestWeight=e.weight;});
@@ -328,32 +335,68 @@
     let unsubInvites = null;
     function mountInvitesArea(profile, user){
       show(el.inviteSection, true);
-      el.sendInviteBtn?.addEventListener('click', async ()=>{
+
+      // 先移除舊的 click 綁定（避免重複綁定造成「看似無反應」）
+      const newSendBtn = el.sendInviteBtn.cloneNode(true);
+      el.sendInviteBtn.parentNode.replaceChild(newSendBtn, el.sendInviteBtn);
+      el.sendInviteBtn = newSendBtn;
+
+      el.sendInviteBtn?.addEventListener('click', async (ev)=>{
+        const btn = ev.currentTarget;
         const toEmail = (el.inviteTargetEmail.value || '').trim().toLowerCase();
         if(!toEmail) return alert('請輸入對方 Email');
         const meEmail = (user.email || '').toLowerCase();
         if (toEmail === meEmail) return alert('不能邀請自己');
+
         const isCoach = profile.role==='coach' || profile.role==='admin';
         let type = isCoach ? 'coach_to_member' : 'member_to_coach';
         let memberUid = isCoach ? await findUidByEmail(toEmail) : user.uid;
-        if(isCoach && !memberUid){ alert('找不到該會員帳號（對方可能尚未登入建立檔案）'); return; }
+        if(isCoach && !memberUid){
+          alert('找不到該會員帳號（對方可能尚未登入建立檔案）');
+          return;
+        }
+
+        btn.disabled = true;
         try{
-          await addDoc(collection(db,'invites'), { type, fromUid:user.uid, fromEmail:meEmail, toEmail, memberUid, status:'pending', createdAt:serverTimestamp() });
-          el.inviteTargetEmail.value=''; alert('已送出邀請');
+          await addDoc(collection(db,'invites'), {
+            type,
+            fromUid: user.uid,
+            fromEmail: meEmail,
+            toEmail,
+            memberUid,
+            status: 'pending',
+            createdAt: serverTimestamp()
+          });
+          el.inviteTargetEmail.value='';
+          alert('已送出邀請');
         }catch(e){ alert('送出失敗：'+(e?.message||e)); }
+        finally{ btn.disabled = false; }
       });
 
+      // 收件匣：我當收件者 + 我是發件者（pending）
       const meEmail = (user.email||'').toLowerCase();
       if (unsubInvites) unsubInvites();
-      const box = new Map();
-      const unsubTo = onSnapshot(query(collection(db,'invites'), where('toEmail','==', meEmail), where('status','==','pending')), snap=>{
-        for(const ch of snap.docChanges()){ if(ch.type==='removed'){ box.delete(ch.doc.id);} else { box.set(ch.doc.id,{id:ch.doc.id,...ch.doc.data()}); } }
-        renderInbox();
-      });
-      const unsubFrom = onSnapshot(query(collection(db,'invites'), where('fromUid','==', user.uid), where('status','==','pending')), snap=>{
-        for(const ch of snap.docChanges()){ if(ch.type==='removed'){ box.delete(ch.doc.id);} else { box.set(ch.doc.id,{id:ch.doc.id,...ch.doc.data()}); } }
-        renderInbox();
-      });
+      const box = new Map(); // id -> invite
+      const unsubTo = onSnapshot(
+        query(collection(db,'invites'), where('toEmail','==', meEmail), where('status','==','pending')),
+        snap=>{
+          for(const ch of snap.docChanges()){
+            if(ch.type==='removed'){ box.delete(ch.doc.id);}
+            else { box.set(ch.doc.id,{id:ch.doc.id,...ch.doc.data()}); }
+          }
+          renderInbox();
+        }
+      );
+      const unsubFrom = onSnapshot(
+        query(collection(db,'invites'), where('fromUid','==', user.uid), where('status','==','pending')),
+        snap=>{
+          for(const ch of snap.docChanges()){
+            if(ch.type==='removed'){ box.delete(ch.doc.id);}
+            else { box.set(ch.doc.id,{id:ch.doc.id,...ch.doc.data()}); }
+          }
+          renderInbox();
+        }
+      );
       unsubInvites = ()=>{ unsubTo(); unsubFrom(); };
 
       function renderInbox(){
@@ -364,7 +407,7 @@
           const who = mine ? inv.toEmail : inv.fromEmail;
           const typeLabel = inv.type === 'member_to_coach' ? '會員→教練' : '教練→會員';
           const tr=document.createElement('tr'); tr.className='border-b';
-          tr.innerHTML = `<td class='px-3 py-2'>${who}</td>
+          tr.innerHTML = `<td class='px-3 py-2 break-all'>${who}</td>
                           <td class='px-3 py-2'>${typeLabel}</td>
                           <td class='px-3 py-2'>待回應</td>
                           <td class='px-3 py-2'>${mine ?
@@ -376,11 +419,20 @@
           tr.querySelector('.accept')?.addEventListener('click', async ()=>{
             try{
               if (inv.type === 'coach_to_member'){
-                await updateDoc(doc(db,'users', user.uid), { coachEmail: (inv.fromEmail||'').toLowerCase(), consent: true, consentAt: serverTimestamp() });
+                await updateDoc(doc(db,'users', user.uid), {
+                  coachEmail: (inv.fromEmail||'').toLowerCase(),
+                  consent: true,
+                  consentAt: serverTimestamp()
+                });
                 await updateDoc(doc(db,'invites', id), { status:'accepted' });
               } else {
                 const myEmailLower = (user.email||'').toLowerCase();
-                await updateDoc(doc(db,'users', inv.memberUid), { coachEmail: myEmailLower, inviteRefId: id, consent: true, consentAt: serverTimestamp() });
+                await updateDoc(doc(db,'users', inv.memberUid), {
+                  coachEmail: myEmailLower,
+                  inviteRefId: id,
+                  consent: true,
+                  consentAt: serverTimestamp()
+                });
                 await updateDoc(doc(db,'invites', id), { status:'accepted' });
               }
               alert('已完成綁定');
@@ -410,14 +462,24 @@
         startEntriesFeed(user.uid);
         const profile = await ensureUserProfile(user);
         el.myRoleBadge.textContent = profile.role;
+
         const needsBind = (profile.role==='member') && (!profile.coachEmail);
         show(el.memberBind, needsBind);
-        if(needsBind) { el.memberUnbindBtn?.addEventListener('click', async ()=>{ try{ await updateDoc(doc(db,'users', user.uid), { coachEmail:null }); alert('已解除綁定'); }catch(e){ alert('解除失敗：'+(e?.message||e)); } }); }
+        if(needsBind){
+          // 會員自行解除
+          el.memberUnbindBtn?.addEventListener('click', async ()=>{
+            try{ await updateDoc(doc(db,'users', user.uid), { coachEmail:null }); alert('已解除綁定'); }
+            catch(e){ alert('解除失敗：'+(e?.message||e)); }
+          });
+        }
+
+        // 教練/管理員頁 + 邀請區
         mountCoachView(profile, user);
         mountInvitesArea(profile, user);
       } else {
         el.meName.textContent='';
-        show(el.appSection,false); show(el.roleRouter,false); show(el.memberBind,false); show(el.coachSection,false); show(el.inviteSection,false);
+        show(el.appSection,false); show(el.roleRouter,false);
+        show(el.memberBind,false); show(el.coachSection,false); show(el.inviteSection,false);
       }
     });
 
@@ -630,7 +692,7 @@
     </div>
   </section>
 
-  <!-- 教練頁 -->
+  <!-- 教練 / 管理員頁 -->
   <section id="coach-section" class="max-w-6xl mx-auto px-4 py-6 hidden">
     <div class="grid gap-6 md:grid-cols-3">
       <div class="bg-white rounded-2xl shadow p-6 md:col-span-1">
