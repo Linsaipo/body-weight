@@ -6,13 +6,17 @@
   <title>PharmaFit 藥健康</title>
   <meta name="description" content="PharmaFit 藥健康 — 健康追蹤與教練管理平台" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%2306b6d4'/><text x='50' y='58' font-size='48' text-anchor='middle' fill='white'>P</text></svg>">
+
   <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Chart.js & date adapter -->
+
+  <!-- Chart.js & date adapter（圖表頁會用到） -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-  <!-- Firebase v12 (module) -->
+
+  <!-- App entry -->
   <script type="module" src="./main.js"></script>
+
   <style>
     html, body { height: 100%; }
   </style>
@@ -25,12 +29,15 @@
         <a href="#/input" class="px-2 py-1 rounded hover:bg-slate-100">輸入</a>
         <a href="#/analytics" class="px-2 py-1 rounded hover:bg-slate-100">圖表/歷史</a>
         <a href="#/profile" class="px-2 py-1 rounded hover:bg-slate-100">我的資料</a>
-        <a href="#/manage" class="px-2 py-1 rounded hover:bg-slate-100">教練/Admin</a>
+        <a href="#/manage" class="px-2 py-1 rounded hover:bg-slate-100">教練專區</a>
+        <!-- Admin 才會顯示（main.js 內切換 hidden） -->
+        <a id="navRoles" href="#/roles" class="hidden px-3 py-1.5 rounded hover:bg-slate-100">權限管理</a>
       </nav>
       <div id="userBadge" class="text-xs text-slate-600"></div>
     </div>
   </header>
 
+  <!-- 路由渲染容器 -->
   <main id="app" class="max-w-6xl mx-auto p-4"></main>
 
   <footer class="max-w-6xl mx-auto px-4 py-8 text-center text-xs text-slate-500">
