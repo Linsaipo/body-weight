@@ -11,14 +11,16 @@ import {
 
 import { addRoute, startRouter } from './router.js';
 
-// ✅ 路徑與檔名「全部用小寫」並且是相對路徑
-import LoginPage     from './pages/loginpage.js';
-import InputPage     from './pages/inputpage.js';
-import AnalyticsPage from './pages/analyticspage.js';
-import ProfilePage   from './pages/profilepage.js';
-import ManagePage    from './pages/managepage.js';
+// ✅ 檔名與路徑請全部小寫，且與 /pages 內檔名一致
+import LoginPage       from './pages/loginpage.js';
+import InputPage       from './pages/inputpage.js';
+import AnalyticsPage   from './pages/analyticspage.js';
+import ProfilePage     from './pages/profilepage.js';
+import ManagePage      from './pages/managepage.js';
+import AdminRolesPage  from './pages/adminrolespage.js';
 
 // 註冊路由
+addRoute('/roles',     AdminRolesPage);
 addRoute('/login',     LoginPage);
 addRoute('/input',     InputPage);
 addRoute('/analytics', AnalyticsPage);
@@ -65,6 +67,7 @@ async function ensureUserProfile(user) {
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     setUserBadge(null, '');
+    // 未登入 → 一律去 login
     if (location.hash !== '#/login') location.hash = '#/login';
     startRouter(ctx);
     return;
@@ -76,7 +79,18 @@ onAuthStateChanged(auth, async (user) => {
 
   setUserBadge(user, profile.role);
 
-  // 預設導向（登入後若還在 login，就導到 analytics）
+  // 顯示 / 隱藏「權限管理」連結（只有 admin 看得到）
+  const navRoles = document.getElementById('navRoles');
+  if (navRoles) {
+    navRoles.classList[profile.role === 'admin' ? 'remove' : 'add']('hidden');
+  }
+
+  // 路由保護：非 admin 不可留在 /roles
+  if (location.hash === '#/roles' && profile.role !== 'admin') {
+    location.hash = '#/analytics';
+  }
+
+  // 預設導向：登入後如果還在 login，就去輸入頁
   if (location.hash === '#/login') location.hash = '#/input';
 
   startRouter(ctx);
