@@ -19,14 +19,18 @@ function render(ctx) {
 
   try {
     const result = pageFn ? pageFn(ctx) : '';
-    // 允許回傳純字串或 { html, mount }
     if (typeof result === 'string') {
-      app.innerHTML = result;
+      app.innerHTML = result || '<div class="p-6">頁面沒有內容</div>';
     } else {
-      app.innerHTML = result?.html || '';
-      // 等 DOM 插入後再掛載事件
+      app.innerHTML = result?.html || '<div class="p-6">頁面沒有內容</div>';
       if (typeof result?.mount === 'function') {
-        queueMicrotask(() => result.mount(ctx));
+        queueMicrotask(() => {
+          try { result.mount(ctx); }
+          catch (e) {
+            console.error('mount error:', e);
+            app.innerHTML = `<div class="p-6 text-red-600">mount 發生錯誤：${e?.message || e}</div>`;
+          }
+        });
       }
     }
   } catch (e) {
