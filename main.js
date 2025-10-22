@@ -99,8 +99,9 @@ onAuthStateChanged(auth, async (user) => {
   startRouter(ctx);
 });
 
-// 供 header 按鈕呼叫
+
 window.logout = async () => {
   await signOut(auth);
   location.hash = '#/login';
+  setTimeout(() => location.reload(), 30);
 };
