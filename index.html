@@ -5,40 +5,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PharmaFit 藥健康</title>
   <meta name="description" content="PharmaFit 藥健康 — 健康追蹤與教練管理平台" />
-  <link rel="icon" href="PharmaFit.png" />
-  <!-- Tailwind (CDN) -->
+
+  <!-- Favicon：只有小藥丸 -->
+  <link rel="icon" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%2310b981"/><stop offset="1" stop-color="%2334d399"/></linearGradient></defs><rect x="10" y="6" width="44" height="52" rx="22" ry="22" fill="url(%23a)"/><rect x="10" y="32" width="44" height="26" rx="0" ry="0" fill="%236ee7b7"/><circle cx="32" cy="24" r="11" fill="white"/><rect x="28" y="20" width="8" height="8" rx="2" fill="%2320a39e"/></svg>' />
+
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Chart.js & date adapter（如果圖表頁會用到） -->
+
+  <!-- Chart.js & date adapter -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-  <!-- App main -->
+
+  <!-- Firebase v12 (module) -->
   <script type="module" src="./main.js"></script>
-  <style>html,body{height:100%}</style>
+
+  <style>
+    html, body { height: 100%; }
+  </style>
 </head>
+
 <body class="bg-slate-50 min-h-screen">
+  <!-- 頁首 -->
   <header class="bg-white border-b sticky top-0 z-10">
     <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <img src="./PharmaFit.png" alt="PharmaFit" class="h-9 w-auto" />
-        <a href="#/analytics" class="text-xl font-bold">PharmaFit 藥健康</a>
-      </div>
-      <nav class="hidden sm:flex items-center gap-4 text-sm">
+      <!-- 左側 LOGO，只顯示圖片 -->
+      <a href="#/analytics" class="flex items-center gap-3">
+        <img src="./PharmaFit.png" alt="PharmaFit 藥健康" class="h-10 w-auto select-none" />
+        <span class="sr-only">PharmaFit 藥健康</span>
+      </a>
+
+      <!-- 導覽列 -->
+      <nav class="hidden sm:flex items-center gap-3 text-sm">
         <a href="#/input" class="px-2 py-1 rounded hover:bg-slate-100">輸入</a>
         <a href="#/analytics" class="px-2 py-1 rounded hover:bg-slate-100">圖表/歷史</a>
         <a href="#/profile" class="px-2 py-1 rounded hover:bg-slate-100">我的資料</a>
         <a href="#/manage" class="px-2 py-1 rounded hover:bg-slate-100">教練專區</a>
-        <!-- 只給 admin 看的連結（由 main.js 控制顯示/隱藏） -->
-        <a id="navRoles" href="#/roles" class="hidden px-2 py-1 rounded hover:bg-slate-100">權限管理</a>
+        <a id="navRoles" href="#/roles" class="hidden px-3 py-1.5 rounded hover:bg-slate-100">權限管理</a>
       </nav>
+
+      <!-- 右上角 -->
       <div class="flex items-center gap-3">
-        <span id="userBadge" class="text-sm text-slate-600"></span>
-        <button id="logoutBtn" class="hidden px-3 py-1.5 rounded bg-slate-900 text-white hover:opacity-90" onclick="logout()">登出</button>
+        <div id="userBadge" class="text-xs text-slate-600"></div>
+        <button id="logoutBtn"
+          class="px-3 py-1.5 rounded bg-slate-900 text-white hover:opacity-90 hidden"
+          onclick="logout()">登出</button>
       </div>
     </div>
   </header>
 
+  <!-- 主內容 -->
   <main id="app" class="max-w-6xl mx-auto p-4"></main>
 
+  <!-- 頁尾 -->
   <footer class="max-w-6xl mx-auto px-4 py-8 text-center text-xs text-slate-500">
     © 2025 PharmaFit 藥健康
   </footer>
